@@ -1,0 +1,417 @@
+#+TITLE: Keystone - Automatic OpenAPI Generation for Axum
+#+AUTHOR: Keystone Contributors
+#+OPTIONS: toc:2
+
+* Overview
+
+Keystone is a Rust library that automatically generates OpenAPI 3.0 specifications from your Axum web applications by extracting documentation directly from rustdoc comments. It provides a seamless developer experience by using the standard Axum router API while automatically capturing rich API documentation.
+
+** Key Features
+
+- 🚀 *Zero-friction integration* - Uses standard Axum router syntax
+- 📝 *Rustdoc extraction* - Automatically extracts API documentation from doc comments
+- 🔄 *Automatic updates* - OpenAPI spec updates whenever you change your code
+- 📋 *Response documentation* - Document multiple response codes and descriptions
+- 🛠️ *Type-safe* - Leverages Rust's type system for accuracy
+- ⚡ *Compile-time processing* - No runtime overhead for documentation
+
+* Quick Start
+
+** Installation
+
+Add Keystone to your =Cargo.toml=:
+
+#+BEGIN_SRC toml
+[dependencies]
+keystone = "0.1.0"
+axum = "0.7"
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+#+END_SRC
+
+** Basic Example
+
+#+BEGIN_SRC rust
+use axum::{Json, extract::Path};
+use serde::{Deserialize, Serialize};
+use keystone::{api_router, api_handler};
+
+#[derive(Serialize)]
+struct HelloResponse {
+    message: String,
+}
+
+/// Says hello to the world
+/// 
+/// This endpoint returns a friendly greeting message.
+/// 
+/// # Responses
+/// - 200: Successfully returned greeting
+#[api_handler]
+async fn hello() -> Json<HelloResponse> {
+    Json(HelloResponse {
+        message: "Hello, World!".to_string(),
+    })
+}
+
+#[tokio::main]
+async fn main() {
+    // Create router with automatic OpenAPI generation
+    let app = api_router!("My API", "1.0.0")
+        .get("/hello", hello)
+        .with_openapi_routes()  // Default: /openapi.json, /openapi.yaml
+        .into_router();
+    
+    // Alternative: Custom prefix
+    // .with_openapi_routes_prefix("/api/docs")  // Creates /api/docs.json, /api/docs.yaml
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:3000")
+        .await
+        .unwrap();
+    
+    println!("Server running on http://127.0.0.1:3000");
+    println!("OpenAPI spec at http://127.0.0.1:3000/openapi.json");
+    
+    axum::serve(listener, app).await.unwrap();
+}
+#+END_SRC
+
+* How It Works
+
+** 1. Handler Documentation
+
+Annotate your Axum handlers with =#[api_handler]= to enable automatic documentation extraction:
+
+#+BEGIN_SRC rust
+/// Get user by ID
+///
+/// Retrieves detailed user information for the specified user ID.
+/// The user ID must be a valid positive integer.
+///
+/// # Responses
+/// - 200: Successfully retrieved user information
+/// - 404: User not found
+/// - 400: Invalid user ID format
+#[api_handler]
+async fn get_user(Path(id): Path<u32>) -> Json<User> {
+    // Implementation
+}
+#+END_SRC
+
+** 2. Router Creation
+
+Use =api_router!= instead of =Router::new()= to create a router with OpenAPI support:
+
+#+BEGIN_SRC rust
+let app = api_router!("My API", "1.0.0")
+    .get("/users/:id", get_user)
+    .post("/users", create_user)
+    .put("/users/:id", update_user)
+    .delete("/users/:id", delete_user)
+    .with_openapi_routes()  // Adds /openapi.json and /openapi.yaml endpoints
+    .into_router();         // Converts to regular axum::Router
+#+END_SRC
+
+** 3. Documentation Format
+
+The rustdoc comments are parsed with the following structure:
+
+- *First line*: Becomes the OpenAPI summary
+- *Remaining lines*: Become the OpenAPI description
+- *# Parameters section*: Documents path, query, and header parameters
+- *# Request Body section*: Documents the request body
+- *# Responses section*: Documents HTTP response codes
+
+*** Parameter Documentation Format
+
+#+BEGIN_SRC rust
+/// # Parameters
+/// - id (path): The unique identifier of the resource
+/// - limit (query): Maximum number of results to return
+/// - api-key (header): API authentication key
+#+END_SRC
+
+*** Request Body Documentation Format
+
+#+BEGIN_SRC rust
+/// # Request Body
+/// Content-Type: application/json
+/// The request body should contain user information including name and email.
+#+END_SRC
+
+*** Response Documentation Format
+
+#+BEGIN_SRC rust
+/// # Responses
+/// - 200: Success description
+/// - 400: Bad request description
+/// - 404: Not found description
+/// - 500: Internal server error description
+#+END_SRC
+
+* Complete Example
+
+Here's a full example showing all features:
+
+#+BEGIN_SRC rust
+use axum::{Json, extract::Path};
+use serde::{Deserialize, Serialize};
+use keystone::{api_router, api_handler};
+
+#[derive(Serialize, Deserialize)]
+struct User {
+    id: u32,
+    name: String,
+    email: String,
+}
+
+#[derive(Deserialize)]
+struct CreateUserRequest {
+    name: String,
+    email: String,
+}
+
+#[derive(Serialize)]
+struct ErrorResponse {
+    error: String,
+}
+
+/// List all users
+/// 
+/// Returns a paginated list of all users in the system.
+/// Use query parameters for pagination control.
+/// 
+/// # Responses
+/// - 200: Successfully retrieved user list
+/// - 500: Internal server error
+#[api_handler]
+async fn list_users() -> Json<Vec<User>> {
+    // Implementation
+    Json(vec![])
+}
+
+/// Get user by ID
+///
+/// Retrieves detailed information for a specific user.
+///
+/// # Parameters
+/// - id (path): The unique user identifier
+///
+/// # Responses  
+/// - 200: Successfully retrieved user
+/// - 404: User not found
+/// - 400: Invalid user ID
+#[api_handler]
+async fn get_user(Path(id): Path<u32>) -> Json<User> {
+    Json(User {
+        id,
+        name: "John Doe".to_string(),
+        email: "john@example.com".to_string(),
+    })
+}
+
+/// Create a new user
+///
+/// Creates a new user account with the provided information.
+/// Email addresses must be unique.
+///
+/// # Request Body
+/// Content-Type: application/json
+/// User information with required name and email fields.
+///
+/// # Responses
+/// - 201: User successfully created
+/// - 400: Invalid request data
+/// - 409: Email already exists
+#[api_handler]
+async fn create_user(Json(payload): Json<CreateUserRequest>) -> Json<User> {
+    Json(User {
+        id: 1,
+        name: payload.name,
+        email: payload.email,
+    })
+}
+
+/// Update user information
+///
+/// Updates an existing user's information. All fields are optional.
+///
+/// # Responses
+/// - 200: User successfully updated
+/// - 404: User not found
+/// - 400: Invalid request data
+#[api_handler]
+async fn update_user(
+    Path(id): Path<u32>,
+    Json(payload): Json<CreateUserRequest>,
+) -> Json<User> {
+    Json(User {
+        id,
+        name: payload.name,
+        email: payload.email,
+    })
+}
+
+/// Delete a user
+///
+/// Permanently deletes a user account. This action cannot be undone.
+///
+/// # Responses
+/// - 204: User successfully deleted
+/// - 404: User not found
+/// - 403: Insufficient permissions
+#[api_handler]
+async fn delete_user(Path(id): Path<u32>) -> Result<(), StatusCode> {
+    Ok(())
+}
+
+#[tokio::main]
+async fn main() {
+    let app = api_router!("User Management API", "1.0.0")
+        .get("/users", list_users)
+        .get("/users/:id", get_user)
+        .post("/users", create_user)
+        .put("/users/:id", update_user)
+        .delete("/users/:id", delete_user)
+        .with_openapi_routes()
+        .into_router();
+
+    // ... server setup
+}
+#+END_SRC
+
+* API Reference
+
+** Macros
+
+*** =api_router!(title, version)=
+
+Creates a new =DocumentedRouter= that tracks routes and generates OpenAPI documentation.
+
+#+BEGIN_SRC rust
+let app = api_router!("My API", "1.0.0");
+#+END_SRC
+
+*** =#[api_handler]=
+
+Attribute macro that extracts rustdoc comments from handler functions.
+
+#+BEGIN_SRC rust
+#[api_handler]
+async fn my_handler() -> Json<Response> {
+    // Implementation
+}
+#+END_SRC
+
+** DocumentedRouter Methods
+
+The =DocumentedRouter= supports all standard HTTP methods with automatic documentation:
+
+- =.get(path, handler)= - Register a GET route
+- =.post(path, handler)= - Register a POST route  
+- =.put(path, handler)= - Register a PUT route
+- =.delete(path, handler)= - Register a DELETE route
+- =.patch(path, handler)= - Register a PATCH route
+
+** Special Methods
+
+*** =.with_openapi_routes()=
+
+Adds OpenAPI spec endpoints to the router using the default prefix:
+- =/openapi.json= - JSON format
+- =/openapi.yaml= - YAML format
+
+*** =.with_openapi_routes_prefix(prefix)=
+
+Adds OpenAPI spec endpoints to the router with a custom prefix:
+
+#+BEGIN_SRC rust
+// Default prefix
+.with_openapi_routes()  // Creates /openapi.json and /openapi.yaml
+
+// Custom prefix  
+.with_openapi_routes_prefix("/api/docs")  // Creates /api/docs.json and /api/docs.yaml
+.with_openapi_routes_prefix("/v1/spec")   // Creates /v1/spec.json and /v1/spec.yaml
+#+END_SRC
+
+*** =.into_router()=
+
+Converts the =DocumentedRouter= into a regular =axum::Router=.
+
+* Advanced Usage
+
+** Custom Response Types
+
+Document different response types for different status codes:
+
+#+BEGIN_SRC rust
+/// Search for users
+///
+/// Searches for users matching the given criteria.
+///
+/// # Responses
+/// - 200: Search results returned successfully
+/// - 400: Invalid search parameters
+/// - 429: Rate limit exceeded
+/// - 503: Search service temporarily unavailable
+#[api_handler]
+async fn search_users(Query(params): Query<SearchParams>) -> Json<SearchResults> {
+    // Implementation
+}
+#+END_SRC
+
+** Nested Routers
+
+Keystone routers can be nested like regular Axum routers:
+
+#+BEGIN_SRC rust
+let users_api = api_router!("Users API", "1.0.0")
+    .get("/", list_users)
+    .post("/", create_user);
+
+let main_api = api_router!("Main API", "1.0.0")
+    .nest("/users", users_api.into_router())
+    .with_openapi_routes();
+#+END_SRC
+
+* Limitations & Future Work
+
+** Current Limitations
+
+1. Response schemas are not yet automatically extracted from types
+2. Request body schemas need manual documentation
+3. Query parameters and headers are not yet documented
+4. Handler documentation requires hardcoded lookup (temporary)
+
+** Planned Features
+
+- [ ] Automatic request/response schema generation using =schemars=
+- [ ] Query parameter documentation support
+- [ ] Header documentation support
+- [ ] Security scheme support (OAuth2, API keys, etc.)
+- [ ] Webhook documentation support
+- [ ] Custom operation IDs
+- [ ] Tag grouping for endpoints
+
+* Contributing
+
+We welcome contributions! Please see our contributing guidelines for details.
+
+** Development Setup
+
+#+BEGIN_SRC bash
+# Clone the repository
+git clone https://github.com/yourusername/keystone.git
+cd keystone
+
+# Run tests
+cargo test
+
+# Run the example
+cd examples/hello_world
+cargo run
+#+END_SRC
+
+* License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
