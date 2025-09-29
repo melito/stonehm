@@ -2,9 +2,14 @@
 name = "stonehm"
 version = "0.1.0"
 edition = "2021"
+description = "Automatic OpenAPI 3.0 generation for Axum applications"
+license = "MIT"
+repository = "https://github.com/yourusername/stonehm"
+keywords = ["openapi", "axum", "api", "documentation", "swagger"]
+categories = ["web-programming", "api-bindings"]
 
 [workspace]
-members = ["examples/hello_world"]
+members = ["examples/hello_world", "stonehm-macros"]
 
 [dependencies]
 axum = "0.7"
@@ -18,5 +23,7 @@ tower-service = "0.3"
 http = "1.0"
 inventory = "0.3"
 indexmap = "2.0"
-# Re-export proc macros via this module
-stonehm-macros = { path = "macros" }
+# Re-export proc macros from separate crate
+# For local development, use path dependency
+# For publishing, switch to: stonehm-macros = "0.1.0"
+stonehm-macros = { version = "0.1.0", path = "stonehm-macros" }
