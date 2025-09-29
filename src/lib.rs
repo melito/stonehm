@@ -9,9 +9,10 @@ use openapiv3::{
     Response as ApiResponse, Parameter, ParameterData, ParameterSchemaOrContent, 
     Schema, SchemaKind, Type, RequestBody, MediaType, Content
 };
+use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
-pub use keystone_macros::api_handler;
 pub use inventory;
+pub use keystone_macros::api_handler;
 
 /// Registry entry for handler documentation
 pub struct HandlerDocEntry {
@@ -20,6 +21,15 @@ pub struct HandlerDocEntry {
 }
 
 inventory::collect!(HandlerDocEntry);
+
+/// Registry entry for schema functions
+pub struct SchemaEntry {
+    pub type_name: &'static str,
+    pub get_schema: fn() -> Option<serde_json::Value>,
+}
+
+inventory::collect!(SchemaEntry);
+
 
 #[derive(Debug, Clone)]
 pub struct ResponseDoc {
@@ -38,6 +48,7 @@ pub struct ParameterDoc {
 pub struct RequestBodyDoc {
     pub description: String,
     pub content_type: String,
+    pub schema_type: Option<String>, // The actual Rust type (e.g., "GreetRequest")
 }
 
 #[derive(Debug, Clone)]
@@ -46,6 +57,8 @@ pub struct HandlerDocumentation {
     pub description: Option<&'static str>,
     pub parameters: Vec<ParameterDoc>,
     pub request_body: Option<RequestBodyDoc>,
+    pub request_body_type: Option<String>, // The actual Rust type for request body
+    pub response_type: Option<String>, // The actual Rust type for response
     pub responses: Vec<ResponseDoc>,
 }
 
@@ -87,6 +100,7 @@ pub struct DocumentedRouter {
     inner: Router,
     routes: Arc<Mutex<Vec<RouteInfo>>>,
     spec: Arc<Mutex<OpenAPI>>,
+    schemas: Arc<Mutex<BTreeMap<String, ReferenceOr<Schema>>>>,
 }
 
 impl DocumentedRouter {
@@ -103,6 +117,7 @@ impl DocumentedRouter {
             inner: Router::new(),
             routes: Arc::new(Mutex::new(Vec::new())),
             spec: Arc::new(Mutex::new(spec)),
+            schemas: Arc::new(Mutex::new(BTreeMap::new())),
         }
     }
 
@@ -115,6 +130,7 @@ impl DocumentedRouter {
             inner: self.inner.route(path, method_router),
             routes: self.routes,
             spec: self.spec,
+            schemas: self.schemas,
         }
     }
 
@@ -142,6 +158,7 @@ impl DocumentedRouter {
             inner: self.inner.route(path, get(handler)),
             routes: self.routes,
             spec: self.spec,
+            schemas: self.schemas,
         }
     }
 
@@ -168,6 +185,7 @@ impl DocumentedRouter {
             inner: self.inner.route(path, post(handler)),
             routes: self.routes,
             spec: self.spec,
+            schemas: self.schemas,
         }
     }
 
@@ -194,6 +212,7 @@ impl DocumentedRouter {
             inner: self.inner.route(path, put(handler)),
             routes: self.routes,
             spec: self.spec,
+            schemas: self.schemas,
         }
     }
 
@@ -220,6 +239,7 @@ impl DocumentedRouter {
             inner: self.inner.route(path, delete(handler)),
             routes: self.routes,
             spec: self.spec,
+            schemas: self.schemas,
         }
     }
 
@@ -246,6 +266,7 @@ impl DocumentedRouter {
             inner: self.inner.route(path, patch(handler)),
             routes: self.routes,
             spec: self.spec,
+            schemas: self.schemas,
         }
     }
 
@@ -280,8 +301,109 @@ impl DocumentedRouter {
             description: None,
             parameters: vec![],
             request_body: None,
+            request_body_type: None,
+            response_type: None,
             responses: vec![],
         }
+    }
+    
+    /// Register a schema type automatically using schema generation
+    fn register_schema_if_available(&self, type_name: &str) {
+        let mut schemas = self.schemas.lock().unwrap();
+        
+        // Skip if we already have this schema
+        if schemas.contains_key(type_name) {
+            return;
+        }
+        
+        // Try to generate a real schema using the generated schema function
+        let schema = self.try_generate_schema(type_name)
+            .unwrap_or_else(|| {
+                // Fallback to basic object schema
+                Schema {
+                    schema_data: Default::default(),
+                    schema_kind: SchemaKind::Type(Type::Object(openapiv3::ObjectType {
+                        properties: Default::default(),
+                        required: vec![],
+                        additional_properties: None,
+                        min_properties: None,
+                        max_properties: None,
+                    })),
+                }
+            });
+        
+        schemas.insert(type_name.to_string(), ReferenceOr::Item(schema));
+    }
+    
+    /// Try to generate a schema using the generated schema functions
+    fn try_generate_schema(&self, type_name: &str) -> Option<Schema> {
+        // Look up the schema function in the registry
+        for entry in inventory::iter::<SchemaEntry> {
+            if entry.type_name == type_name {
+                if let Some(schema_json) = (entry.get_schema)() {
+                    // Convert the schemars JSON schema to OpenAPI schema
+                    return self.convert_schemars_to_openapi(schema_json);
+                }
+            }
+        }
+        None
+    }
+    
+    /// Convert a schemars JSON schema to an OpenAPI schema
+    fn convert_schemars_to_openapi(&self, schema_json: serde_json::Value) -> Option<Schema> {
+        // Try to deserialize the schemars schema as an OpenAPI schema
+        // This is a bit of a hack since the formats are similar but not identical
+        if let Ok(schema) = serde_json::from_value::<Schema>(schema_json.clone()) {
+            Some(schema)
+        } else {
+            // If direct conversion fails, try to extract basic information
+            self.extract_basic_schema_info(schema_json)
+        }
+    }
+    
+    /// Extract basic schema information from schemars JSON
+    fn extract_basic_schema_info(&self, schema_json: serde_json::Value) -> Option<Schema> {
+        if let Some(obj) = schema_json.as_object() {
+            if obj.get("type")?.as_str() == Some("object") {
+                let mut properties = indexmap::IndexMap::new();
+                let mut required = Vec::new();
+                
+                if let Some(props) = obj.get("properties").and_then(|p| p.as_object()) {
+                    for (key, value) in props {
+                        // Try to convert each property
+                        if let Ok(prop_schema) = serde_json::from_value::<ReferenceOr<Box<Schema>>>(value.clone()) {
+                            properties.insert(key.clone(), prop_schema);
+                        } else {
+                            // Fallback to string type for properties we can't parse
+                            properties.insert(key.clone(), ReferenceOr::Item(Box::new(Schema {
+                                schema_data: Default::default(),
+                                schema_kind: SchemaKind::Type(Type::String(Default::default())),
+                            })));
+                        }
+                    }
+                }
+                
+                if let Some(req_array) = obj.get("required").and_then(|r| r.as_array()) {
+                    for item in req_array {
+                        if let Some(field_name) = item.as_str() {
+                            required.push(field_name.to_string());
+                        }
+                    }
+                }
+                
+                return Some(Schema {
+                    schema_data: Default::default(),
+                    schema_kind: SchemaKind::Type(Type::Object(openapiv3::ObjectType {
+                        properties,
+                        required,
+                        additional_properties: None,
+                        min_properties: None,
+                        max_properties: None,
+                    })),
+                });
+            }
+        }
+        None
     }
 
     /// Register a route in our tracking system
@@ -306,8 +428,32 @@ impl DocumentedRouter {
             responses: responses.clone(),
         });
         
+        // Collect schema types that need to be registered
+        let mut schema_types = Vec::new();
+        if let Some(ref body) = request_body {
+            if let Some(ref schema_type) = body.schema_type {
+                schema_types.push(schema_type.clone());
+            }
+        }
+        
+        // Register schemas if we have any
+        for schema_type in &schema_types {
+            self.register_schema_if_available(schema_type);
+        }
+        
         // Update the OpenAPI spec
         let mut spec = self.spec.lock().unwrap();
+        
+        // Ensure components section exists and add schemas
+        if spec.components.is_none() {
+            spec.components = Some(Default::default());
+        }
+        
+        if let Some(ref mut components) = spec.components {
+            let schemas = self.schemas.lock().unwrap();
+            components.schemas.extend(schemas.clone());
+        }
+        
         let path_item = spec.paths.paths
             .entry(convert_path_params(path))
             .or_insert_with(|| ReferenceOr::Item(PathItem::default()));
@@ -340,6 +486,7 @@ impl DocumentedRouter {
             inner: self.inner.merge(other),
             routes: self.routes,
             spec: self.spec,
+            schemas: self.schemas,
         }
     }
 
@@ -349,6 +496,7 @@ impl DocumentedRouter {
             inner: self.inner.nest(path, router),
             routes: self.routes,
             spec: self.spec,
+            schemas: self.schemas,
         }
     }
 
@@ -389,6 +537,7 @@ impl DocumentedRouter {
             inner,
             routes: self.routes,
             spec: self.spec,
+            schemas: self.schemas,
         }
     }
 
@@ -543,13 +692,25 @@ fn create_operation_with_params_and_responses(
     // Add request body from documentation
     if let Some(body_doc) = request_body_doc {
         let mut content = Content::default();
+        
+        // Use schema reference if we have a type, otherwise generic object
+        let schema = if let Some(ref schema_type) = body_doc.schema_type {
+            // Create a reference to the schema
+            ReferenceOr::Reference {
+                reference: format!("#/components/schemas/{}", schema_type),
+            }
+        } else {
+            // Fallback to generic object
+            ReferenceOr::Item(Schema {
+                schema_data: Default::default(),
+                schema_kind: SchemaKind::Type(Type::Object(Default::default())),
+            })
+        };
+        
         content.insert(
             body_doc.content_type.clone(),
             MediaType {
-                schema: Some(ReferenceOr::Item(Schema {
-                    schema_data: Default::default(),
-                    schema_kind: SchemaKind::Type(Type::Object(Default::default())),
-                })),
+                schema: Some(schema),
                 example: None,
                 examples: Default::default(),
                 encoding: Default::default(),
@@ -789,6 +950,8 @@ mod tests {
             description: Some("This is a test handler with documentation for testing purposes."),
             parameters: vec![],
             request_body: None,
+            request_body_type: None,
+            response_type: None,
             responses: vec![
                 ResponseDoc {
                     status_code: 200,

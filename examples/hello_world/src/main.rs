@@ -3,7 +3,7 @@ use axum::{
     Json,
 };
 use serde::{Deserialize, Serialize};
-use schemars::JsonSchema;
+use schemars::{JsonSchema, schema_for};
 use keystone::{api_router, api_handler};
 
 #[derive(Serialize, JsonSchema)]
@@ -88,8 +88,21 @@ async fn get_user(Path(UserId { id }): Path<UserId>) -> Json<UserResponse> {
     })
 }
 
+
 #[tokio::main]
 async fn main() {
+    // Test: Print the OpenAPI spec to see if schemas are included
+    if std::env::args().any(|arg| arg == "--test-schema") {
+        let router = api_router!("Hello World API", "1.0.0")
+            .get("/", hello)
+            .post("/greet", greet) 
+            .get("/users/:id", get_user);
+            
+        let spec = router.openapi_spec();
+        println!("{}", serde_json::to_string_pretty(&spec).unwrap());
+        return;
+    }
+    
     // Example 1: Default OpenAPI routes (uses /openapi prefix)
     if std::env::args().any(|arg| arg == "--default") {
         println!("Using default OpenAPI routes...");
