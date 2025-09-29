@@ -1,10 +1,10 @@
-#+TITLE: Keystone - Automatic OpenAPI Generation for Axum
-#+AUTHOR: Keystone Contributors
+#+TITLE: Stonehm - Automatic OpenAPI Generation for Axum
+#+AUTHOR: Stonehm Contributors
 #+OPTIONS: toc:2
 
 * Overview
 
-Keystone is a Rust library that automatically generates OpenAPI 3.0 specifications from your Axum web applications by extracting documentation directly from rustdoc comments. It provides a seamless developer experience by using the standard Axum router API while automatically capturing rich API documentation.
+Stonehm is a Rust library that automatically generates OpenAPI 3.0 specifications from your Axum web applications by extracting documentation directly from rustdoc comments. It provides a seamless developer experience by using the standard Axum router API while automatically capturing rich API documentation.
 
 ** Key Features
 
@@ -19,11 +19,11 @@ Keystone is a Rust library that automatically generates OpenAPI 3.0 specificatio
 
 ** Installation
 
-Add Keystone to your =Cargo.toml=:
+Add Stonehm to your =Cargo.toml=:
 
 #+BEGIN_SRC toml
 [dependencies]
-keystone = "0.1.0"
+stonehm = "0.1.0"
 axum = "0.7"
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1.0", features = ["derive"] }
@@ -34,7 +34,7 @@ serde = { version = "1.0", features = ["derive"] }
 #+BEGIN_SRC rust
 use axum::{Json, extract::Path};
 use serde::{Deserialize, Serialize};
-use keystone::{api_router, api_handler};
+use stonehm::{api_router, api_handler};
 
 #[derive(Serialize)]
 struct HelloResponse {
@@ -156,7 +156,7 @@ Here's a full example showing all features:
 #+BEGIN_SRC rust
 use axum::{Json, extract::Path};
 use serde::{Deserialize, Serialize};
-use keystone::{api_router, api_handler};
+use stonehm::{api_router, api_handler};
 
 #[derive(Serialize, Deserialize)]
 struct User {

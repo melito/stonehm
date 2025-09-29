@@ -12,7 +12,7 @@ use openapiv3::{
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 pub use inventory;
-pub use keystone_macros::api_handler;
+pub use stonehm_macros::api_handler;
 
 /// Registry entry for handler documentation
 pub struct HandlerDocEntry {

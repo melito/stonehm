@@ -3,8 +3,8 @@ use axum::{
     Json,
 };
 use serde::{Deserialize, Serialize};
-use schemars::{JsonSchema, schema_for};
-use keystone::{api_router, api_handler};
+use schemars::JsonSchema;
+use stonehm::{api_router, api_handler};
 
 #[derive(Serialize, JsonSchema)]
 struct HelloResponse {

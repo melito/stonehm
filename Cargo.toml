@@ -1,5 +1,5 @@
 [package]
-name = "keystone"
+name = "stonehm"
 version = "0.1.0"
 edition = "2021"
 
@@ -19,4 +19,4 @@ http = "1.0"
 inventory = "0.3"
 indexmap = "2.0"
 # Re-export proc macros via this module
-keystone-macros = { path = "macros" }
+stonehm-macros = { path = "macros" }
