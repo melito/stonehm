@@ -25,16 +25,53 @@ Add Stonehm to your =Cargo.toml=:
 [dependencies]
 stonehm = "0.1.0"
 axum = "0.7"
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+#+END_SRC
+
+*Note*: Stonehm re-exports =serde= and =serde_json= so you can use =stonehm::serde= instead of adding these as direct dependencies. Schema generation is built-in using our custom =SimpleSchema= derive macro.
+
+** Minimal Setup
+
+For a minimal setup, you only need:
+
+#+BEGIN_SRC toml
+[dependencies]
+stonehm = "0.1.0"
+axum = "0.7"  
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+#+END_SRC
+
+And in your code:
+
+#+BEGIN_SRC rust
+use axum::Json;
+use stonehm::{api_router, api_handler, serde::Serialize, SimpleSchema};
+
+#[derive(Serialize, SimpleSchema)]
+struct Response { message: String }
+
+#[api_handler]
+async fn hello() -> Json<Response> {
+    Json(Response { message: "Hello!".to_string() })
+}
+
+#[tokio::main]
+async fn main() {
+    let app = api_router!("API", "1.0.0")
+        .get("/", hello)
+        .with_openapi_routes()
+        .into_router();
+    // ... server setup
+}
 #+END_SRC
 
 ** Basic Example
 
 #+BEGIN_SRC rust
 use axum::{Json, extract::Path};
-use serde::{Deserialize, Serialize};
-use stonehm::{api_router, api_handler};
+use stonehm::{api_router, api_handler, serde::{Deserialize, Serialize}};
 
 #[derive(Serialize)]
 struct HelloResponse {

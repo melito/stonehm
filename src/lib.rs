@@ -12,7 +12,20 @@ use openapiv3::{
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 pub use inventory;
-pub use stonehm_macros::api_handler;
+pub use stonehm_macros::{api_handler, SimpleSchema};
+
+// Re-export dependencies so users don't need to add them
+pub use serde;
+pub use serde_json;
+
+/// Simple schema generation macro to replace schemars::schema_for!
+#[macro_export]
+macro_rules! simple_schema_for {
+    ($type:ty) => {{
+        // For types that implement our SimpleSchema trait
+        <$type>::schema()
+    }};
+}
 
 /// Registry entry for handler documentation
 pub struct HandlerDocEntry {
@@ -756,6 +769,7 @@ fn create_operation_with_params_and_responses(
 }
 
 /// Create an operation with optional documentation and responses (backwards compatibility)
+#[cfg(test)]
 fn create_operation_with_responses(
     path: &str, 
     method: &Method, 
@@ -936,6 +950,7 @@ mod tests {
     /// # Responses
     /// - 200: Test successful
     /// - 400: Test failed
+    #[allow(dead_code)]
     async fn test_documented_handler() -> Json<TestResponse> {
         Json(TestResponse {
             message: "test documented".to_string(),
@@ -943,7 +958,7 @@ mod tests {
     }
     
     // Manually create the documentation function for this test handler
-    #[allow(non_upper_case_globals)]
+    #[allow(non_upper_case_globals, non_snake_case)]
     pub fn __DOCS_TEST_DOCUMENTED_HANDLER() -> HandlerDocumentation {
         HandlerDocumentation {
             summary: Some("Test handler with documentation"),

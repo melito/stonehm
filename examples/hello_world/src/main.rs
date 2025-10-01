@@ -3,20 +3,19 @@ use axum::{
     Json,
 };
 use serde::{Deserialize, Serialize};
-use schemars::JsonSchema;
-use stonehm::{api_router, api_handler};
+use stonehm::{api_router, api_handler, SimpleSchema};
 
-#[derive(Serialize, JsonSchema)]
+#[derive(Serialize, SimpleSchema)]
 struct HelloResponse {
     message: String,
 }
 
-#[derive(Deserialize, JsonSchema)]
+#[derive(Deserialize, SimpleSchema)]
 struct GreetRequest {
     name: String,
 }
 
-#[derive(Serialize, JsonSchema)]
+#[derive(Serialize, SimpleSchema)]
 struct GreetResponse {
     greeting: String,
 }
@@ -26,7 +25,7 @@ struct UserId {
     id: u32,
 }
 
-#[derive(Serialize, JsonSchema)]
+#[derive(Serialize, SimpleSchema)]
 struct UserResponse {
     id: u32,
     name: String,

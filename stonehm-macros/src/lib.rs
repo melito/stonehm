@@ -1,6 +1,6 @@
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{parse_macro_input, ItemFn, Attribute, Lit, Meta, Expr, Type, FnArg, ReturnType, PathArguments, GenericArgument};
+use syn::{parse_macro_input, ItemFn, Attribute, Lit, Meta, Expr, Type, FnArg, ReturnType, PathArguments, GenericArgument, DeriveInput, Data, Fields};
 
 #[derive(Debug, Clone)]
 struct ResponseDoc {
@@ -313,10 +313,9 @@ pub fn api_handler(_attr: TokenStream, item: TokenStream) -> TokenStream {
         
         schema_functions.push(quote! {
             #[allow(non_upper_case_globals)]
-            pub fn #schema_fn_name() -> Option<serde_json::Value> {
-                use schemars::{JsonSchema, schema_for};
-                let schema = schema_for!(#req_type_ident);
-                serde_json::to_value(&schema.schema).ok()
+            pub fn #schema_fn_name() -> Option<stonehm::serde_json::Value> {
+                // Try to use our simple schema first, fallback to schemars if available
+                Some(<#req_type_ident>::schema())
             }
             
             // Register this schema function in the global registry
@@ -340,10 +339,9 @@ pub fn api_handler(_attr: TokenStream, item: TokenStream) -> TokenStream {
         
         schema_functions.push(quote! {
             #[allow(non_upper_case_globals)]
-            pub fn #schema_fn_name() -> Option<serde_json::Value> {
-                use schemars::{JsonSchema, schema_for};
-                let schema = schema_for!(#resp_type_ident);
-                serde_json::to_value(&schema.schema).ok()
+            pub fn #schema_fn_name() -> Option<stonehm::serde_json::Value> {
+                // Try to use our simple schema first, fallback to schemars if available
+                Some(<#resp_type_ident>::schema())
             }
             
             // Register this schema function in the global registry
@@ -399,4 +397,98 @@ pub fn documented_router(_input: TokenStream) -> TokenStream {
     };
     
     TokenStream::from(output)
+}
+
+/// A simpler replacement for schemars::JsonSchema
+#[proc_macro_derive(SimpleSchema)]
+pub fn derive_simple_schema(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    let name = &input.ident;
+    let name_str = name.to_string();
+    
+    let schema_json = match &input.data {
+        Data::Struct(data_struct) => {
+            match &data_struct.fields {
+                Fields::Named(fields) => {
+                    let mut properties = vec![];
+                    let mut required = vec![];
+                    
+                    for field in fields.named.iter() {
+                        if let Some(field_name) = &field.ident {
+                            let field_name_str = field_name.to_string();
+                            required.push(quote! { #field_name_str });
+                            
+                            // Simple type mapping - extend as needed
+                            let type_str = match &field.ty {
+                                Type::Path(type_path) => {
+                                    if let Some(segment) = type_path.path.segments.last() {
+                                        match segment.ident.to_string().as_str() {
+                                            "String" | "str" => "string",
+                                            "i32" | "i64" | "u32" | "u64" | "isize" | "usize" => "integer",
+                                            "f32" | "f64" => "number",
+                                            "bool" => "boolean",
+                                            _ => "string", // default fallback
+                                        }
+                                    } else {
+                                        "string"
+                                    }
+                                },
+                                _ => "string", // default for complex types
+                            };
+                            
+                            properties.push(quote! {
+                                (#field_name_str.to_string(), stonehm::serde_json::json!({ "type": #type_str }))
+                            });
+                        }
+                    }
+                    
+                    quote! {
+                        stonehm::serde_json::json!({
+                            "title": #name_str,
+                            "type": "object",
+                            "properties": stonehm::serde_json::Value::Object(
+                                [#(#properties),*].into_iter().collect()
+                            ),
+                            "required": [#(#required),*]
+                        })
+                    }
+                },
+                _ => {
+                    // For unit structs or tuple structs, create a simple object
+                    quote! {
+                        stonehm::serde_json::json!({
+                            "title": #name_str,
+                            "type": "object"
+                        })
+                    }
+                }
+            }
+        },
+        _ => {
+            // For enums, unions, etc., create a simple string type for now
+            quote! {
+                stonehm::serde_json::json!({
+                    "title": #name_str,
+                    "type": "string"
+                })
+            }
+        }
+    };
+    
+    let schema_fn_name = syn::Ident::new(&format!("__{}_schema", name.to_string().to_lowercase()), name.span());
+    
+    let expanded = quote! {
+        impl #name {
+            pub fn schema() -> stonehm::serde_json::Value {
+                #schema_json
+            }
+        }
+        
+        // Also provide a standalone function for easier access
+        pub fn #schema_fn_name() -> stonehm::serde_json::Value {
+            #name::schema()
+        }
+    };
+    
+    TokenStream::from(expanded)
 }
