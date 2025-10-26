@@ -4,7 +4,7 @@ version = "0.1.1"
 edition = "2021"
 description = "Automatic OpenAPI 3.0 generation for Axum applications"
 license = "MIT"
-repository = "https://github.com/yourusername/stonehm"
+repository = "https://github.com/melito/stonehm"
 keywords = ["openapi", "axum", "api", "documentation", "swagger"]
 categories = ["web-programming", "api-bindings"]
 
@@ -17,14 +17,11 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_yaml = "0.9"
 openapiv3 = "2.0"
-# schemars = { version = "0.8", features = ["preserve_order", "derive"] }
 tower = "0.5"
 tower-service = "0.3"
 http = "1.0"
 inventory = "0.3"
 indexmap = "2.0"
 
-# Re-export proc macros from separate crate
-# For local development, use path dependency
-# For publishing, switch to: stonehm-macros = "0.1.0"
+# Macros crate
 stonehm-macros = { version = "0.1.0", path = "stonehm-macros" }
