@@ -28,7 +28,8 @@
 //! ```rust,no_run
 //! use axum::Json;
 //! use serde::{Deserialize, Serialize};
-//! use stonehm::{api_router, api_handler, StoneSchema};
+//! use stonehm::{api_router, api_handler};
+//! use stonehm_macros::StoneSchema;
 //!
 //! #[derive(Serialize, StoneSchema)]
 //! struct HelloResponse {
@@ -97,7 +98,8 @@
 //! Document path, query, and header parameters:
 //!
 //! ```rust,no_run
-//! use stonehm::{api_handler, StoneSchema};
+//! use stonehm::api_handler;
+//! use stonehm_macros::StoneSchema;
 //! use axum::Json;
 //! use serde::Serialize;
 //! 
@@ -120,7 +122,8 @@
 //! Document the expected request body:
 //!
 //! ```rust,no_run
-//! use stonehm::{api_handler, StoneSchema};
+//! use stonehm::api_handler;
+//! use stonehm_macros::StoneSchema;
 //! use axum::Json;
 //! use serde::{Serialize, Deserialize};
 //! 
@@ -145,7 +148,8 @@
 //! Document possible response status codes:
 //!
 //! ```rust,no_run
-//! use stonehm::{api_handler, StoneSchema};
+//! use stonehm::api_handler;
+//! use stonehm_macros::StoneSchema;
 //! use axum::Json;
 //! use serde::Serialize;
 //! 
@@ -171,7 +175,7 @@
 //!
 //! ```rust
 //! use serde::Serialize;
-//! use stonehm::StoneSchema;
+//! use stonehm_macros::StoneSchema;
 //! 
 //! #[derive(Serialize, StoneSchema)]
 //! struct User {
@@ -223,7 +227,7 @@ pub use serde_json;
 /// 
 /// ```rust
 /// use serde::{Serialize, Deserialize};
-/// use stonehm::StoneSchema;
+/// use stonehm_macros::StoneSchema;
 /// 
 /// #[derive(Serialize, Deserialize, StoneSchema)]
 /// struct User {
@@ -297,7 +301,8 @@ pub trait StoneSchema {
 /// # Examples
 /// 
 /// ```rust,no_run
-/// use stonehm::{stone_schema_for, StoneSchema};
+/// use stonehm::stone_schema_for;
+/// use stonehm_macros::StoneSchema;
 /// use serde::Serialize;
 /// 
 /// #[derive(Serialize, StoneSchema)]
@@ -585,7 +590,8 @@ pub struct HandlerMetadata {
 /// automatically created when you register routes with a `DocumentedRouter`:
 /// 
 /// ```rust
-/// # use stonehm::{api_router, api_handler, StoneSchema};
+/// # use stonehm::{api_router, api_handler};
+/// # use stonehm_macros::StoneSchema;
 /// # use axum::Json;
 /// # use serde::Serialize;
 /// # #[derive(Serialize, StoneSchema)]
@@ -695,7 +701,8 @@ pub trait HandlerRegistry {
 /// ## Basic Usage
 /// 
 /// ```rust,no_run
-/// use stonehm::{DocumentedRouter, api_handler, StoneSchema};
+/// use stonehm::{DocumentedRouter, api_handler};
+/// use stonehm_macros::StoneSchema;
 /// use axum::Json;
 /// use serde::Serialize;
 /// 
@@ -720,7 +727,8 @@ pub trait HandlerRegistry {
 /// ## Using the Convenience Macro
 /// 
 /// ```rust,no_run
-/// # use stonehm::{api_router, api_handler, StoneSchema};
+/// # use stonehm::{api_router, api_handler};
+/// # use stonehm_macros::StoneSchema;
 /// # use axum::Json;
 /// # use serde::Serialize;
 /// # #[derive(Serialize, StoneSchema)]
@@ -740,7 +748,8 @@ pub trait HandlerRegistry {
 /// ## Accessing the OpenAPI Specification
 /// 
 /// ```rust,no_run
-/// # use stonehm::{api_router, api_handler, StoneSchema};
+/// # use stonehm::{api_router, api_handler};
+/// # use stonehm_macros::StoneSchema;
 /// # use axum::Json;
 /// # use serde::Serialize;
 /// # #[derive(Serialize, StoneSchema)]
@@ -1159,7 +1168,8 @@ impl DocumentedRouter {
     /// # Examples
     /// 
     /// ```rust,no_run
-    /// # use stonehm::{api_router, api_handler, StoneSchema};
+    /// # use stonehm::{api_router, api_handler};
+/// # use stonehm_macros::StoneSchema;
     /// # use axum::Json;
     /// # use serde::Serialize;
     /// # #[derive(Serialize, StoneSchema)]
@@ -1195,7 +1205,8 @@ impl DocumentedRouter {
     /// # Examples
     /// 
     /// ```rust,no_run
-    /// # use stonehm::{api_router, api_handler, StoneSchema};
+    /// # use stonehm::{api_router, api_handler};
+/// # use stonehm_macros::StoneSchema;
     /// # use axum::Json;
     /// # use serde::Serialize;
     /// # #[derive(Serialize, StoneSchema)]
@@ -1264,7 +1275,8 @@ impl DocumentedRouter {
     /// # Examples
     /// 
     /// ```rust
-    /// # use stonehm::{api_router, api_handler, StoneSchema};
+    /// # use stonehm::{api_router, api_handler};
+/// # use stonehm_macros::StoneSchema;
     /// # use axum::Json;
     /// # use serde::Serialize;
     /// # #[derive(Serialize, StoneSchema)]
@@ -1296,7 +1308,8 @@ impl DocumentedRouter {
     /// # Examples
     /// 
     /// ```rust
-    /// # use stonehm::{api_router, api_handler, StoneSchema};
+    /// # use stonehm::{api_router, api_handler};
+/// # use stonehm_macros::StoneSchema;
     /// # use axum::Json;
     /// # use serde::{Serialize, Deserialize};
     /// # #[derive(Serialize, StoneSchema)]
@@ -1562,7 +1575,8 @@ fn create_operation_with_responses(
 /// # Examples
 /// 
 /// ```rust
-/// # use stonehm::{api_router, api_handler, StoneSchema};
+/// # use stonehm::{api_router, api_handler};
+/// # use stonehm_macros::StoneSchema;
 /// # use axum::Json;
 /// # use serde::{Serialize, Deserialize};
 /// # #[derive(Serialize, StoneSchema)]
