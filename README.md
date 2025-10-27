@@ -1,55 +1,56 @@
-#+TITLE: Stonehm - Automatic OpenAPI Generation for Axum
-#+AUTHOR: Stonehm Contributors
-#+OPTIONS: toc:2
-
-* Overview
+# Stonehm - Automatic OpenAPI Generation for Axum
 
 Stonehm is a Rust library that automatically generates OpenAPI 3.0 specifications from your Axum web applications by extracting documentation directly from rustdoc comments. It provides a seamless developer experience by using the standard Axum router API while automatically capturing rich API documentation.
 
-** Key Features
+## Key Features
 
-- 🚀 *Zero-friction integration* - Uses standard Axum router syntax
-- 📝 *Rustdoc extraction* - Automatically extracts API documentation from doc comments
-- 🔄 *Automatic updates* - OpenAPI spec updates whenever you change your code
-- 📋 *Response documentation* - Document multiple response codes and descriptions
-- 🛠️ *Type-safe* - Leverages Rust's type system for accuracy
-- ⚡ *Compile-time processing* - No runtime overhead for documentation
+- 🚀 **Zero-friction integration** - Uses standard Axum router syntax
+- 📝 **Rustdoc extraction** - Automatically extracts API documentation from doc comments
+- 🔄 **Automatic updates** - OpenAPI spec updates whenever you change your code
+- 📋 **Response documentation** - Document multiple response codes and descriptions
+- 🛠️ **Type-safe** - Leverages Rust's type system for accuracy
+- ⚡ **Compile-time processing** - No runtime overhead for documentation
+- 🔗 **Complete schema generation** - Automatic request/response body schemas
 
-* Quick Start
+## Quick Start
 
-** Installation
+### Installation
 
-Add Stonehm to your =Cargo.toml=:
+Add Stonehm to your `Cargo.toml`:
 
-#+BEGIN_SRC toml
+```toml
 [dependencies]
-stonehm = "0.1.0"
+stonehm = "0.1"
+stonehm-macros = "0.1"
 axum = "0.7"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-#+END_SRC
+```
 
-*Note*: Stonehm re-exports =serde= and =serde_json= so you can use =stonehm::serde= instead of adding these as direct dependencies. Schema generation is built-in using our custom =SimpleSchema= derive macro.
+**Note**: Stonehm re-exports `serde` and `serde_json` so you can use `stonehm::serde` instead of adding these as direct dependencies. Schema generation is built-in using our custom `StoneSchema` derive macro from the `stonehm-macros` crate.
 
-** Minimal Setup
+### Minimal Setup
 
 For a minimal setup, you only need:
 
-#+BEGIN_SRC toml
+```toml
 [dependencies]
-stonehm = "0.1.0"
+stonehm = "0.1"
+stonehm-macros = "0.1"
 axum = "0.7"  
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
-#+END_SRC
+```
 
 And in your code:
 
-#+BEGIN_SRC rust
+```rust
 use axum::Json;
-use stonehm::{api_router, api_handler, serde::Serialize, SimpleSchema};
+use stonehm::{api_router, api_handler};
+use stonehm_macros::StoneSchema;
+use serde::Serialize;
 
-#[derive(Serialize, SimpleSchema)]
+#[derive(Serialize, StoneSchema)]
 struct Response { message: String }
 
 #[api_handler]
@@ -65,15 +66,17 @@ async fn main() {
         .into_router();
     // ... server setup
 }
-#+END_SRC
+```
 
-** Basic Example
+### Basic Example
 
-#+BEGIN_SRC rust
+```rust
 use axum::{Json, extract::Path};
-use stonehm::{api_router, api_handler, serde::{Deserialize, Serialize}};
+use stonehm::{api_router, api_handler};
+use stonehm_macros::StoneSchema;
+use serde::Serialize;
 
-#[derive(Serialize)]
+#[derive(Serialize, StoneSchema)]
 struct HelloResponse {
     message: String,
 }
@@ -111,15 +114,15 @@ async fn main() {
     
     axum::serve(listener, app).await.unwrap();
 }
-#+END_SRC
+```
 
-* How It Works
+## How It Works
 
-** 1. Handler Documentation
+### 1. Handler Documentation
 
-Annotate your Axum handlers with =#[api_handler]= to enable automatic documentation extraction:
+Annotate your Axum handlers with `#[api_handler]` to enable automatic documentation extraction:
 
-#+BEGIN_SRC rust
+```rust
 /// Get user by ID
 ///
 /// Retrieves detailed user information for the specified user ID.
@@ -133,13 +136,13 @@ Annotate your Axum handlers with =#[api_handler]= to enable automatic documentat
 async fn get_user(Path(id): Path<u32>) -> Json<User> {
     // Implementation
 }
-#+END_SRC
+```
 
-** 2. Router Creation
+### 2. Router Creation
 
-Use =api_router!= instead of =Router::new()= to create a router with OpenAPI support:
+Use `api_router!` instead of `Router::new()` to create a router with OpenAPI support:
 
-#+BEGIN_SRC rust
+```rust
 let app = api_router!("My API", "1.0.0")
     .get("/users/:id", get_user)
     .post("/users", create_user)
@@ -147,68 +150,74 @@ let app = api_router!("My API", "1.0.0")
     .delete("/users/:id", delete_user)
     .with_openapi_routes()  // Adds /openapi.json and /openapi.yaml endpoints
     .into_router();         // Converts to regular axum::Router
-#+END_SRC
+```
 
-** 3. Documentation Format
+### 3. Documentation Format
 
 The rustdoc comments are parsed with the following structure:
 
-- *First line*: Becomes the OpenAPI summary
-- *Remaining lines*: Become the OpenAPI description
-- *# Parameters section*: Documents path, query, and header parameters
-- *# Request Body section*: Documents the request body
-- *# Responses section*: Documents HTTP response codes
+- **First line**: Becomes the OpenAPI summary
+- **Remaining lines**: Become the OpenAPI description
+- **# Parameters section**: Documents path, query, and header parameters
+- **# Request Body section**: Documents the request body
+- **# Responses section**: Documents HTTP response codes
 
-*** Parameter Documentation Format
+#### Parameter Documentation Format
 
-#+BEGIN_SRC rust
+```rust
 /// # Parameters
 /// - id (path): The unique identifier of the resource
 /// - limit (query): Maximum number of results to return
 /// - api-key (header): API authentication key
-#+END_SRC
+```
 
-*** Request Body Documentation Format
+#### Request Body Documentation Format
 
-#+BEGIN_SRC rust
+```rust
 /// # Request Body
 /// Content-Type: application/json
 /// The request body should contain user information including name and email.
-#+END_SRC
+```
 
-*** Response Documentation Format
+#### Response Documentation Format
 
-#+BEGIN_SRC rust
+```rust
 /// # Responses
 /// - 200: Success description
 /// - 400: Bad request description
 /// - 404: Not found description
 /// - 500: Internal server error description
-#+END_SRC
+```
 
-* Complete Example
+## Complete Example
 
 Here's a full example showing all features:
 
-#+BEGIN_SRC rust
+```rust
 use axum::{Json, extract::Path};
 use serde::{Deserialize, Serialize};
 use stonehm::{api_router, api_handler};
+use stonehm_macros::StoneSchema;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, StoneSchema)]
 struct User {
     id: u32,
     name: String,
     email: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, StoneSchema)]
 struct CreateUserRequest {
     name: String,
     email: String,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, StoneSchema)]
+struct UsersResponse {
+    users: Vec<User>,
+}
+
+#[derive(Serialize, StoneSchema)]
 struct ErrorResponse {
     error: String,
 }
@@ -222,9 +231,9 @@ struct ErrorResponse {
 /// - 200: Successfully retrieved user list
 /// - 500: Internal server error
 #[api_handler]
-async fn list_users() -> Json<Vec<User>> {
+async fn list_users() -> Json<UsersResponse> {
     // Implementation
-    Json(vec![])
+    Json(UsersResponse { users: vec![] })
 }
 
 /// Get user by ID
@@ -315,73 +324,73 @@ async fn main() {
 
     // ... server setup
 }
-#+END_SRC
+```
 
-* API Reference
+## API Reference
 
-** Macros
+### Macros
 
-*** =api_router!(title, version)=
+#### `api_router!(title, version)`
 
-Creates a new =DocumentedRouter= that tracks routes and generates OpenAPI documentation.
+Creates a new `DocumentedRouter` that tracks routes and generates OpenAPI documentation.
 
-#+BEGIN_SRC rust
+```rust
 let app = api_router!("My API", "1.0.0");
-#+END_SRC
+```
 
-*** =#[api_handler]=
+#### `#[api_handler]`
 
 Attribute macro that extracts rustdoc comments from handler functions.
 
-#+BEGIN_SRC rust
+```rust
 #[api_handler]
 async fn my_handler() -> Json<Response> {
     // Implementation
 }
-#+END_SRC
+```
 
-** DocumentedRouter Methods
+### DocumentedRouter Methods
 
-The =DocumentedRouter= supports all standard HTTP methods with automatic documentation:
+The `DocumentedRouter` supports all standard HTTP methods with automatic documentation:
 
-- =.get(path, handler)= - Register a GET route
-- =.post(path, handler)= - Register a POST route  
-- =.put(path, handler)= - Register a PUT route
-- =.delete(path, handler)= - Register a DELETE route
-- =.patch(path, handler)= - Register a PATCH route
+- `.get(path, handler)` - Register a GET route
+- `.post(path, handler)` - Register a POST route  
+- `.put(path, handler)` - Register a PUT route
+- `.delete(path, handler)` - Register a DELETE route
+- `.patch(path, handler)` - Register a PATCH route
 
-** Special Methods
+### Special Methods
 
-*** =.with_openapi_routes()=
+#### `.with_openapi_routes()`
 
 Adds OpenAPI spec endpoints to the router using the default prefix:
-- =/openapi.json= - JSON format
-- =/openapi.yaml= - YAML format
+- `/openapi.json` - JSON format
+- `/openapi.yaml` - YAML format
 
-*** =.with_openapi_routes_prefix(prefix)=
+#### `.with_openapi_routes_prefix(prefix)`
 
 Adds OpenAPI spec endpoints to the router with a custom prefix:
 
-#+BEGIN_SRC rust
+```rust
 // Default prefix
 .with_openapi_routes()  // Creates /openapi.json and /openapi.yaml
 
 // Custom prefix  
 .with_openapi_routes_prefix("/api/docs")  // Creates /api/docs.json and /api/docs.yaml
 .with_openapi_routes_prefix("/v1/spec")   // Creates /v1/spec.json and /v1/spec.yaml
-#+END_SRC
+```
 
-*** =.into_router()=
+#### `.into_router()`
 
-Converts the =DocumentedRouter= into a regular =axum::Router=.
+Converts the `DocumentedRouter` into a regular `axum::Router`.
 
-* Advanced Usage
+## Advanced Usage
 
-** Custom Response Types
+### Custom Response Types
 
 Document different response types for different status codes:
 
-#+BEGIN_SRC rust
+```rust
 /// Search for users
 ///
 /// Searches for users matching the given criteria.
@@ -395,13 +404,13 @@ Document different response types for different status codes:
 async fn search_users(Query(params): Query<SearchParams>) -> Json<SearchResults> {
     // Implementation
 }
-#+END_SRC
+```
 
-** Nested Routers
+### Nested Routers
 
-Keystone routers can be nested like regular Axum routers:
+Stonehm routers can be nested like regular Axum routers:
 
-#+BEGIN_SRC rust
+```rust
 let users_api = api_router!("Users API", "1.0.0")
     .get("/", list_users)
     .post("/", create_user);
@@ -409,37 +418,44 @@ let users_api = api_router!("Users API", "1.0.0")
 let main_api = api_router!("Main API", "1.0.0")
     .nest("/users", users_api.into_router())
     .with_openapi_routes();
-#+END_SRC
+```
 
-* Limitations & Future Work
+## Schema Generation
 
-** Current Limitations
+The crate automatically generates comprehensive request and response schemas:
 
-1. Response schemas are not yet automatically extracted from types
-2. Request body schemas need manual documentation
-3. Query parameters and headers are not yet documented
-4. Handler documentation requires hardcoded lookup (temporary)
+- ✅ **Request body schemas** are automatically generated and included
+- ✅ **Response body schemas** are automatically detected and included for 200 responses
+- ✅ **Schema references** point to the generated component schemas
+- ✅ **Complete OpenAPI 3.0 compliance** with proper component definitions
 
-** Planned Features
+For 200 responses, the generated OpenAPI will include both the description and the complete response body structure:
 
-- [ ] Automatic request/response schema generation using =schemars=
-- [ ] Query parameter documentation support
-- [ ] Header documentation support
-- [ ] Security scheme support (OAuth2, API keys, etc.)
-- [ ] Webhook documentation support
-- [ ] Custom operation IDs
-- [ ] Tag grouping for endpoints
+```json
+"responses": {
+  "200": {
+    "description": "Successfully retrieved user profile",
+    "content": {
+      "application/json": {
+        "schema": {
+          "$ref": "#/components/schemas/User"
+        }
+      }
+    }
+  }
+}
+```
 
-* Contributing
+## Contributing
 
 We welcome contributions! Please see our contributing guidelines for details.
 
-** Development Setup
+### Development Setup
 
-#+BEGIN_SRC bash
+```bash
 # Clone the repository
-git clone https://github.com/yourusername/keystone.git
-cd keystone
+git clone https://github.com/melito/stonehm.git
+cd stonehm
 
 # Run tests
 cargo test
@@ -456,8 +472,8 @@ cargo run -p hello_world -- --test-schema
 
 # Use custom OpenAPI prefix
 cargo run -p hello_world -- --default
-#+END_SRC
+```
 
-* License
+## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
