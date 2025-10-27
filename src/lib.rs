@@ -1,182 +1,573 @@
-//! # Stonehm - Automatic OpenAPI 3.0 Generation for Axum
+//! # Stonehm - Documentation-Driven OpenAPI 3.0 Generation for Axum
 //!
-//! Stonehm is a Rust crate that automatically generates OpenAPI 3.0 specifications
-//! for Axum web applications by analyzing handler functions and their documentation.
+//! Stonehm automatically generates comprehensive OpenAPI 3.0 specifications for Axum web applications
+//! by analyzing handler functions and their documentation. The core principle is **"documentation is the spec"** -
+//! write clear, natural documentation and get complete OpenAPI specs automatically.
 //!
-//! ## Features
+//! ## Key Features
 //!
-//! - **Automatic OpenAPI generation**: Extract documentation from function comments
-//! - **Schema generation**: Automatically generate JSON schemas for request/response types
-//! - **Zero runtime overhead**: All processing happens at compile time
-//! - **Axum integration**: Drop-in replacement for `axum::Router`
-//! - **Documentation-driven**: Uses standard Rust doc comments
+//! - 🚀 **Zero-friction integration** - Uses standard Axum router syntax  
+//! - 📝 **Documentation-driven** - Extract API docs from rustdoc comments
+//! - 🔄 **Automatic error handling** - Detect errors from `Result<T, E>` types
+//! - 📋 **Complete response documentation** - Support simple and elaborate response formats
+//! - 🛠️ **Type-safe schema generation** - Automatic request/response schemas
+//! - ⚡ **Compile-time processing** - Zero runtime overhead
 //!
-//! ## Quick Start
+//! ## Installation
 //!
-//! Add stonehm to your `Cargo.toml`:
+//! Add to your `Cargo.toml`:
 //!
 //! ```toml
 //! [dependencies]
 //! stonehm = "0.1"
+//! stonehm-macros = "0.1"
 //! axum = "0.7"
-//! serde = { version = "1.0", features = ["derive"] }
 //! tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+//! serde = { version = "1.0", features = ["derive"] }
 //! ```
 //!
-//! ## Basic Usage
+//! ## Documentation Formats
+//!
+//! Stonehm supports multiple documentation approaches to fit different needs:
+//!
+//! ### 1. Simple Documentation (Recommended)
+//!
+//! Write natural documentation and let Stonehm handle the rest:
 //!
 //! ```rust,no_run
 //! use axum::Json;
 //! use serde::{Deserialize, Serialize};
 //! use stonehm::{api_router, api_handler};
-//! use stonehm_macros::StoneSchema;
+//! use stonehm_macros::{StoneSchema, api_error};
 //!
 //! #[derive(Serialize, StoneSchema)]
-//! struct HelloResponse {
-//!     message: String,
-//! }
-//!
-//! #[derive(Deserialize, StoneSchema)]
-//! struct GreetRequest {
+//! struct User {
+//!     id: u32,
 //!     name: String,
+//!     email: String,
 //! }
 //!
 //! #[derive(Serialize, StoneSchema)]
-//! struct GreetResponse {
-//!     greeting: String,
+//! #[api_error]
+//! enum ApiError {
+//!     /// 404: User not found
+//!     UserNotFound { id: u32 },
+//!     
+//!     /// 400: Validation failed
+//!     ValidationError { message: String },
+//!     
+//!     /// 500: Internal server error
+//!     DatabaseError,
 //! }
 //!
-//! /// Returns a simple hello world message
+//! /// Get user by ID
 //! ///
-//! /// This endpoint doesn't require any parameters and always returns
-//! /// the same friendly greeting message.
-//! ///
-//! /// # Responses
-//! /// - 200: Successfully returned hello message
+//! /// Retrieves a user's information using their unique identifier.
+//! /// Returns detailed user data including name and email.
 //! #[api_handler]
-//! async fn hello() -> Json<HelloResponse> {
-//!     Json(HelloResponse {
-//!         message: "Hello, World!".to_string(),
-//!     })
-//! }
-//!
-//! /// Creates a personalized greeting
-//! ///
-//! /// Takes a name in the request body and returns a personalized
-//! /// greeting message.
-//! ///
-//! /// # Request Body
-//! /// Content-Type: application/json
-//! /// The request body should contain a JSON object with a name field.
-//! ///
-//! /// # Responses
-//! /// - 200: Successfully created personalized greeting
-//! /// - 400: Invalid request body
-//! #[api_handler]
-//! async fn greet(Json(payload): Json<GreetRequest>) -> Json<GreetResponse> {
-//!     Json(GreetResponse {
-//!         greeting: format!("Hello, {}!", payload.name),
-//!     })
-//! }
-//!
-//! // Note: This example shows the API structure but doesn't compile
-//! // due to missing tokio dependency in doctests
-//! fn main() {
-//!     let app = api_router!("My API", "1.0.0")
-//!         .get("/", hello)
-//!         .post("/greet", greet)
-//!         .with_openapi_routes()  // Adds /openapi.json and /openapi.yaml
-//!         .into_router();
+//! async fn get_user() -> Result<Json<User>, ApiError> {
+//!     // Implementation here
+//!     Ok(Json(User {
+//!         id: 1,
+//!         name: "John Doe".to_string(),
+//!         email: "john@example.com".to_string(),
+//!     }))
 //! }
 //! ```
 //!
-//! ## Documentation Format
+//! **This automatically generates:**
+//! - ✅ 200 response with User schema
+//! - ✅ 400 Bad Request with ApiError schema  
+//! - ✅ 500 Internal Server Error with ApiError schema
+//! - ✅ Complete OpenAPI 3.0 specification
+//!
+//! ### 2. Detailed Documentation Format
+//!
+//! For more control, use structured documentation sections:
+//!
+//! ```rust,no_run
+//! # use axum::{Json, extract::Path};
+//! # use serde::{Deserialize, Serialize};
+//! # use stonehm::{api_router, api_handler};
+//! # use stonehm_macros::StoneSchema;
+//! # #[derive(Serialize, StoneSchema)] struct User { id: u32, name: String }
+//! # #[derive(Deserialize)] struct UserId { id: u32 }
+//! 
+//! /// Update user information
+//! ///
+//! /// Updates an existing user's profile information. All fields are optional
+//! /// and only provided fields will be updated.
+//! ///
+//! /// # Parameters
+//! /// - id (path): The unique user identifier
+//! /// - include_profile (query): Whether to include full profile data
+//! ///
+//! /// # Request Body  
+//! /// Content-Type: application/json
+//! /// User update data with optional name and email fields.
+//! ///
+//! /// # Responses
+//! /// - 200: User successfully updated
+//! /// - 400: Invalid user data provided
+//! /// - 404: User not found
+//! /// - 403: Insufficient permissions
+//! #[api_handler]
+//! async fn update_user(Path(UserId { id }): Path<UserId>) -> Json<User> {
+//!     // Implementation
+//! #   Json(User { id, name: "Updated".to_string() })
+//! }
+//! ```
+//!
+//! ### 3. Elaborate Response Documentation  
+//!
+//! For complex APIs that need detailed error documentation:
+//!
+//! ```rust,no_run
+//! # use axum::{Json, extract::Path};
+//! # use serde::{Deserialize, Serialize};
+//! # use stonehm::{api_router, api_handler};  
+//! # use stonehm_macros::StoneSchema;
+//! # #[derive(Serialize, StoneSchema)] struct User { id: u32 }
+//! # #[derive(Serialize, StoneSchema)] struct ErrorResponse { error: String, code: u32 }
+//! # #[derive(Deserialize)] struct UserId { id: u32 }
+//!
+//! /// Delete user account
+//! ///
+//! /// Permanently removes a user account and all associated data.
+//! /// This action cannot be undone.
+//! ///
+//! /// # Parameters
+//! /// - id (path): The unique user identifier to delete
+//! ///
+//! /// # Responses  
+//! /// - 204: User successfully deleted
+//! /// - 404:
+//! ///   description: User not found
+//! ///   content:
+//! ///     application/json:
+//! ///       schema: ErrorResponse
+//! /// - 403:
+//! ///   description: Insufficient permissions to delete user
+//! ///   content:
+//! ///     application/json:
+//! ///       schema: ErrorResponse
+//! #[api_handler]
+//! async fn delete_user(Path(UserId { id }): Path<UserId>) {
+//!     // Implementation
+//! }
+//! ```
+//!
+//! ## Router Setup
+//!
+//! Create a documented router and add OpenAPI endpoints:
+//!
+//! ```rust,no_run
+//! # use stonehm::api_router;
+//! # async fn get_user() {}
+//! # async fn update_user() {}
+//! # async fn delete_user() {}
+//!
+//! #[tokio::main]
+//! async fn main() {
+//!     let app = api_router!("User API", "1.0.0")
+//!         .get("/users/:id", get_user)
+//!         .put("/users/:id", update_user) 
+//!         .delete("/users/:id", delete_user)
+//!         .with_openapi_routes()  // Adds /openapi.json and /openapi.yaml
+//!         .into_router();
+//!
+//!     // Custom prefix
+//!     let app_custom = api_router!("User API", "1.0.0")
+//!         .get("/users/:id", get_user)
+//!         .with_openapi_routes_prefix("/api/docs")  // /api/docs.json, /api/docs.yaml
+//!         .into_router();
+//!
+//!     // Server setup
+//!     let listener = tokio::net::TcpListener::bind("127.0.0.1:3000").await.unwrap();
+//!     axum::serve(listener, app).await.unwrap();
+//! }
+//! ```
+//!
+//! ## Schema Generation
+//!
+//! Use the `StoneSchema` derive macro for automatic schema generation:
+//!
+//! ```rust
+//! use serde::{Serialize, Deserialize};
+//! use stonehm_macros::{StoneSchema, api_error};
+//!
+//! #[derive(Serialize, Deserialize, StoneSchema)]
+//! struct CreateUserRequest {
+//!     name: String,
+//!     email: String,
+//!     age: Option<u32>,
+//!     active: bool,
+//! }
+//!
+//! #[derive(Serialize, StoneSchema)]
+//! struct UserResponse {
+//!     id: u32,
+//!     name: String,
+//!     email: String,
+//!     created_at: String,
+//! }
+//!
+//! #[derive(Serialize, StoneSchema)]
+//! enum UserError {
+//!     InvalidEmail,
+//!     DuplicateEmail { email: String },
+//!     DatabaseConnectionFailed,
+//! }
+//! ```
+//!
+//! ## Advanced Features
+//!
+//! ### Automatic Error Handling
+//!
+//! Return `Result<Json<T>, E>` types for automatic error response generation:
+//!
+//! ```rust,no_run
+//! # use axum::Json;
+//! # use serde::Serialize;
+//! # use stonehm::{api_handler};
+//! # use stonehm_macros::StoneSchema;
+//! # #[derive(Serialize, StoneSchema)] struct User { id: u32 }
+//! # #[derive(Serialize, StoneSchema)] enum ApiError { NotFound }
+//! # use axum::response::{IntoResponse, Response};
+//! # impl IntoResponse for ApiError { fn into_response(self) -> Response { todo!() } }
+//!
+//! /// Create new user with automatic error handling
+//! ///
+//! /// Creates a user account. Errors are automatically documented
+//! /// based on the Result type.
+//! #[api_handler]
+//! async fn create_user() -> Result<Json<User>, ApiError> {
+//!     // Automatic error responses:
+//!     // - 400: Bad Request (ApiError schema)
+//!     // - 500: Internal Server Error (ApiError schema)
+//!     Ok(Json(User { id: 1 }))
+//! }
+//! ```
+//!
+//! ### Multiple Content Types
+//!
+//! Support different response formats:
+//!
+//! ```text
+//! # Responses
+//! - 200:
+//!   description: Success response
+//!   content:
+//!     application/json:
+//!       schema: UserResponse
+//! - 400:
+//!   description: Validation error
+//!   content:
+//!     application/xml:
+//!       schema: ErrorResponse
+//! ```
+//!
+//! ## Documentation Format Reference
 //!
 //! Stonehm extracts documentation from standard Rust doc comments using these sections:
 //!
-//! ### Parameters
-//! Document path, query, and header parameters:
+//! ### Summary and Description
+//!
+//! - **First line**: Becomes the OpenAPI summary
+//! - **Following paragraphs**: Become the OpenAPI description
+//!
+//! ```text
+//! /// Create a new user account
+//! ///
+//! /// This endpoint creates a new user with the provided information.
+//! /// Validation is performed on all fields before saving to the database.
+//! ```
+//!
+//! ### Parameters Section
+//!
+//! Document path, query, and header parameters using this format:
+//!
+//! ```text
+//! /// # Parameters
+//! /// - id (path): The unique user identifier
+//! /// - page (query): Page number for pagination  
+//! /// - limit (query): Maximum number of results per page
+//! /// - authorization (header): Bearer token for authentication
+//! ```
+//!
+//! ### Request Body Section
+//!
+//! Document request body content and schema:
+//!
+//! ```text
+//! /// # Request Body
+//! /// Content-Type: application/json
+//! /// User creation data including required name and email fields.
+//! /// The password must be at least 8 characters long.
+//! ```
+//!
+//! ### Response Documentation
+//!
+//! **Simple Format** (recommended for most cases):
+//!
+//! ```text
+//! /// # Responses
+//! /// - 200: User successfully created
+//! /// - 400: Invalid user data provided
+//! /// - 409: Email address already exists
+//! ```
+//!
+//! **Elaborate Format** (for detailed error documentation):
+//!
+//! ```text
+//! /// # Responses
+//! /// - 201: User successfully created
+//! /// - 400:
+//! ///   description: Validation failed
+//! ///   content:
+//! ///     application/json:
+//! ///       schema: ValidationError
+//! /// - 409:
+//! ///   description: Email already exists
+//! ///   content:
+//! ///     application/json:
+//! ///       schema: ConflictError
+//! ```
+//!
+//! ### Automatic vs Manual Response Documentation
+//!
+//! | Return Type | Automatic Behavior | Manual Override |
+//! |-------------|-------------------|-----------------|
+//! | `Json<T>` | 200 response with T schema | Use `# Responses` section |
+//! | `Result<Json<T>, E>` | 200 with T schema<br/>400, 500 with E schema | Use `# Responses` section |
+//! | `()` | 200 empty response | Use `# Responses` section |
+//!
+//! ## Complete Example
+//!
+//! Here's a comprehensive example showing all features:
 //!
 //! ```rust,no_run
-//! use stonehm::api_handler;
-//! use stonehm_macros::StoneSchema;
-//! use axum::{Json, extract::Path};
-//! use serde::Serialize;
+//! use axum::{Json, extract::{Path, Query}};
+//! use serde::{Serialize, Deserialize};
+//! use stonehm::{api_router, api_handler};
+//! use stonehm_macros::{StoneSchema, api_error};
 //! 
-//! #[derive(Serialize, StoneSchema)]
-//! struct User { 
+//! #[derive(Serialize, Deserialize, StoneSchema)]
+//! struct User {
 //!     id: u32,
 //!     name: String,
+//!     email: String,
 //! }
-//! 
-//! /// Get user by ID
+//!
+//! #[derive(Deserialize, StoneSchema)]
+//! struct CreateUserRequest {
+//!     name: String,
+//!     email: String,
+//! }
+//!
+//! #[derive(Deserialize)]
+//! struct UserQuery {
+//!     include_posts: Option<bool>,
+//! }
+//!
+//! #[derive(Serialize, StoneSchema)]
+//! #[api_error]
+//! enum ApiError {
+//!     /// 404: User not found
+//!     UserNotFound { id: u32 },
+//!     
+//!     /// 400: Validation failed
+//!     ValidationError { field: String, message: String },
+//!     
+//!     /// 500: Internal server error
+//!     DatabaseError,
+//! }
+//!
+//! /// Get user by ID with optional post inclusion
 //! ///
-//! /// Retrieves a user's information by their unique identifier.
-//! /// The ID must be a valid positive integer.
+//! /// Retrieves detailed user information. Optionally includes
+//! /// the user's posts if requested via query parameter.
 //! ///
 //! /// # Parameters
 //! /// - id (path): The user's unique identifier
+//! /// - include_posts (query): Whether to include user's posts
+//! ///
+//! /// # Responses
+//! /// - 200: User successfully retrieved
+//! /// - 404: User not found
+//! /// - 400: Invalid user ID format
 //! #[api_handler]
-//! async fn get_user(Path(id): Path<u32>) -> Json<User> {
-//!     Json(User { 
-//!         id, 
+//! async fn get_user_detailed(
+//!     Path(id): Path<u32>,
+//!     Query(query): Query<UserQuery>
+//! ) -> Result<Json<User>, ApiError> {
+//!     if id == 0 {
+//!         return Err(ApiError::ValidationError {
+//!             field: "id".to_string(),
+//!             message: "ID must be greater than 0".to_string(),
+//!         });
+//!     }
+//!     
+//!     Ok(Json(User {
+//!         id,
 //!         name: format!("User {}", id),
-//!     })
+//!         email: format!("user{}@example.com", id),
+//!     }))
 //! }
-//! ```
 //!
-//! ### Request Body
-//! Document the expected request body:
-//!
-//! ```rust,no_run
-//! use stonehm::api_handler;
-//! use stonehm_macros::StoneSchema;
-//! use axum::Json;
-//! use serde::{Serialize, Deserialize};
-//! 
-//! #[derive(Deserialize, StoneSchema)]
-//! struct CreateUserRequest { name: String }
-//! 
-//! #[derive(Serialize, StoneSchema)]
-//! struct User { id: u32 }
-//! 
-//! /// Create a new user
+//! /// Create a new user account
+//! ///
+//! /// Creates a new user with the provided information. The email
+//! /// address must be unique and valid.
 //! ///
 //! /// # Request Body
 //! /// Content-Type: application/json
-//! /// User information including name, email, and optional preferences.
+//! /// User creation data with required name and email fields.
+//! ///
+//! /// # Responses
+//! /// - 201: User successfully created
+//! /// - 400: Invalid user data or validation failed
+//! /// - 409: Email address already exists
 //! #[api_handler]
-//! async fn create_user(Json(user): Json<CreateUserRequest>) -> Json<User> {
+//! async fn create_user_complete(
+//!     Json(request): Json<CreateUserRequest>
+//! ) -> Result<Json<User>, ApiError> {
+//!     // Validation
+//!     if request.email.is_empty() {
+//!         return Err(ApiError::ValidationError {
+//!             field: "email".to_string(),
+//!             message: "Email is required".to_string(),
+//!         });
+//!     }
+//!     
+//!     Ok(Json(User {
+//!         id: 42,
+//!         name: request.name,
+//!         email: request.email,
+//!     }))
+//! }
+//!
+//! // Router setup
+//! #[tokio::main]
+//! async fn main() {
+//!     let app = api_router!("User Management API", "1.0.0")
+//!         .get("/users/:id", get_user_detailed)
+//!         .post("/users", create_user_complete)
+//!         .with_openapi_routes()
+//!         .into_router();
+//!         
+//!     let listener = tokio::net::TcpListener::bind("127.0.0.1:3000").await.unwrap();
+//!     axum::serve(listener, app).await.unwrap();
+//! }
+//! ```
+//!
+//! ## Best Practices
+//!
+//! ### 1. Use Result Types for Error Handling
+//! 
+//! Return `Result<Json<T>, E>` to get automatic error response generation:
+//!
+//! ```rust,no_run
+//! # use axum::Json;
+//! # use serde::Serialize;
+//! # use stonehm::api_handler;
+//! # use stonehm_macros::StoneSchema;
+//! # #[derive(Serialize, StoneSchema)] struct User { id: u32 }
+//! # #[derive(Serialize, StoneSchema)] enum ApiError { NotFound }
+//! # use axum::response::{IntoResponse, Response};
+//! # impl IntoResponse for ApiError { fn into_response(self) -> Response { todo!() } }
+//!
+//! /// ✅ Automatic error responses
+//! #[api_handler] 
+//! async fn get_user_recommended() -> Result<Json<User>, ApiError> {
+//!     Ok(Json(User { id: 1 }))
+//! }
+//!
+//! /// ❌ Manual response documentation needed
+//! #[api_handler]
+//! async fn get_user_manual() -> Json<User> {
 //!     Json(User { id: 1 })
 //! }
 //! ```
 //!
-//! ### Responses
-//! Document possible response status codes and their descriptions:
+//! ### 2. Keep Documentation Natural
 //!
-//! ```rust,no_run
-//! use stonehm::api_handler;
-//! use stonehm_macros::StoneSchema;
-//! use axum::Json;
-//! use serde::Serialize;
-//! 
-//! #[derive(Serialize, StoneSchema)]
-//! struct User { id: u32, name: String }
-//! 
-//! /// Get user profile
+//! Focus on describing what the endpoint does, not OpenAPI details:
+//!
+//! ```text
+//! /// ✅ Good - describes business logic
+//! /// Creates a new user account with email verification
 //! ///
-//! /// Returns the user's profile information. The response body will be a User object
-//! /// containing the user's ID and name.
-//! ///
+//! /// ❌ Avoid - OpenAPI implementation details  
+//! /// Returns HTTP 201 with application/json content-type
+//! ```
+//!
+//! ### 3. Use Simple Response Format
+//!
+//! Only use elaborate format when you need detailed error schemas:
+//!
+//! ```text
+//! /// ✅ Simple - sufficient for most cases
 //! /// # Responses
-//! /// - 200: Successfully retrieved user profile (returns User object)
-//! /// - 404: User not found
-//! /// - 500: Internal server error
-//! #[api_handler]
-//! async fn get_user_profile() -> Json<User> {
-//!     Json(User { id: 1, name: "John Doe".to_string() })
+//! /// - 200: User created successfully
+//! /// - 400: Invalid user data
+//! ///
+//! /// ❌ Elaborate - only when needed
+//! /// # Responses
+//! /// - 200:
+//! ///   description: User created
+//! ///   content:
+//! ///     application/json:
+//! ///       schema: User
+//! ```
+//!
+//! ### 4. Implement IntoResponse for Error Types
+//!
+//! Make your error types work with Axum:
+//!
+//! ```rust
+//! # use serde::Serialize;
+//! # use stonehm_macros::StoneSchema;
+//! use axum::{response::{IntoResponse, Response}, http::StatusCode, Json};
+//!
+//! #[derive(Serialize, StoneSchema)]
+//! enum ApiError {
+//!     UserNotFound,
+//!     ValidationFailed { field: String },
+//! }
+//!
+//! impl IntoResponse for ApiError {
+//!     fn into_response(self) -> Response {
+//!         let (status, message) = match self {
+//!             ApiError::UserNotFound => (StatusCode::NOT_FOUND, "User not found"),
+//!             ApiError::ValidationFailed { field } => (StatusCode::BAD_REQUEST, "Validation failed"),
+//!         };
+//!         (status, Json(serde_json::json!({"error": message}))).into_response()
+//!     }
 //! }
 //! ```
+//!
+//! ## Troubleshooting
+//!
+//! ### Common Issues
+//!
+//! **Q: My error type isn't generating responses**  
+//! A: Make sure your function returns `Result<Json<T>, E>` and use `#[api_error]` on your error enum.
+//!
+//! **Q: Schemas aren't appearing in OpenAPI**  
+//! A: Ensure your types have `#[derive(StoneSchema)]` and are used in function signatures.
+//!
+//! **Q: Path parameters not documented**  
+//! A: Add them to the `# Parameters` section with `(path)` type.
+//!
+//! **Q: Custom response schemas not working**  
+//! A: Use the elaborate response format with explicit schema references.
+//!
+//! ### Performance Notes
+//!
+//! - All processing happens at compile time - zero runtime cost
+//! - Schema generation uses efficient compile-time reflection
+//! - OpenAPI spec is generated once during compilation
 //!
 //! **Response Schema Generation**: 
 //! 
@@ -380,21 +771,35 @@ inventory::collect!(SchemaEntry);
 /// Documentation for a single HTTP response.
 /// 
 /// This struct represents information about a specific HTTP response that an API endpoint
-/// can return, including the status code and a human-readable description.
+/// can return, including the status code, description, and optional content schema
+/// and examples for more detailed documentation.
 /// 
 /// # Examples
 /// 
+/// ## Simple Response
 /// ```rust
 /// use stonehm::ResponseDoc;
 /// 
 /// let success_response = ResponseDoc {
 ///     status_code: 200,
 ///     description: "User successfully created".to_string(),
+///     content: None,
+///     examples: None,
 /// };
+/// ```
+/// 
+/// ## Response with Content Schema
+/// ```rust
+/// use stonehm::{ResponseDoc, ResponseContent};
 /// 
 /// let error_response = ResponseDoc {
 ///     status_code: 400,
 ///     description: "Invalid user data provided".to_string(),
+///     content: Some(ResponseContent {
+///         media_type: "application/json".to_string(),
+///         schema: Some("ErrorResponse".to_string()),
+///     }),
+///     examples: None,
 /// };
 /// ```
 #[derive(Debug, Clone)]
@@ -403,6 +808,36 @@ pub struct ResponseDoc {
     pub status_code: u16,
     /// Human-readable description of when this response occurs
     pub description: String,
+    /// Optional content type and schema information
+    pub content: Option<ResponseContent>,
+    /// Optional examples for this response
+    pub examples: Option<Vec<ResponseExample>>,
+}
+
+/// Content information for API responses.
+/// 
+/// Describes the media type and schema for response bodies, allowing for more
+/// detailed OpenAPI documentation of error responses and alternative content types.
+#[derive(Debug, Clone)]
+pub struct ResponseContent {
+    /// The media type (e.g., "application/json", "application/xml")
+    pub media_type: String,
+    /// Optional schema reference (e.g., "ErrorResponse")
+    pub schema: Option<String>,
+}
+
+/// Example content for API responses.
+/// 
+/// Provides concrete examples of response bodies to help API consumers understand
+/// the structure and content of responses.
+#[derive(Debug, Clone)]
+pub struct ResponseExample {
+    /// Unique name for this example
+    pub name: String,
+    /// Optional summary describing this example
+    pub summary: Option<String>,
+    /// The example content (typically JSON)
+    pub value: String,
 }
 
 /// Documentation for a single API parameter.
@@ -504,14 +939,19 @@ pub struct RequestBodyDoc {
 ///     }),
 ///     request_body_type: Some("CreateUserRequest".to_string()),
 ///     response_type: Some("UserResponse".to_string()),
+///     error_type: None,
 ///     responses: vec![
 ///         ResponseDoc {
 ///             status_code: 201,
 ///             description: "User successfully created".to_string(),
+///             content: None,
+///             examples: None,
 ///         },
 ///         ResponseDoc {
 ///             status_code: 400,
 ///             description: "Invalid user data".to_string(),
+///             content: None,
+///             examples: None,
 ///         },
 ///     ],
 /// };
@@ -530,6 +970,8 @@ pub struct HandlerDocumentation {
     pub request_body_type: Option<String>,
     /// The actual Rust type name for the response (for schema generation)
     pub response_type: Option<String>,
+    /// The actual Rust type name for errors (for automatic error response generation)
+    pub error_type: Option<String>,
     /// List of possible responses this handler can return
     pub responses: Vec<ResponseDoc>,
 }
@@ -573,6 +1015,7 @@ pub struct HandlerDocumentation {
 ///     request_body: None,
 ///     request_body_type: None,
 ///     response_type: None,
+///     error_type: None,
 ///     responses: vec![],
 /// };
 /// ```
@@ -613,10 +1056,14 @@ pub struct HandlerMetadata {
 ///         ResponseDoc {
 ///             status_code: 200,
 ///             description: "User successfully retrieved".to_string(),
+///             content: None,
+///             examples: None,
 ///         },
 ///         ResponseDoc {
 ///             status_code: 404,
 ///             description: "User not found".to_string(),
+///             content: None,
+///             examples: None,
 ///         },
 ///     ],
 /// };
@@ -858,6 +1305,7 @@ impl DocumentedRouter {
             request_body: None,
             request_body_type: None,
             response_type: None,
+            error_type: None,
             responses: vec![],
         };
         self.register_route(path, Method::GET, empty_docs); // Default to GET, would need smarter detection
@@ -999,6 +1447,7 @@ impl DocumentedRouter {
             request_body: None,
             request_body_type: None,
             response_type: None,
+            error_type: None,
             responses: vec![],
         }
     }
@@ -1114,6 +1563,7 @@ impl DocumentedRouter {
         let parameters = docs.parameters;
         let request_body = docs.request_body;
         let response_type = docs.response_type;
+        let error_type = docs.error_type;
         let responses = docs.responses;
         let mut routes = self.routes.lock().unwrap();
         routes.push(RouteInfo {
@@ -1136,6 +1586,10 @@ impl DocumentedRouter {
         // Register response schema type
         if let Some(ref resp_type) = response_type {
             schema_types.push(resp_type.clone());
+        }
+        // Register error schema type
+        if let Some(ref err_type) = error_type {
+            schema_types.push(err_type.clone());
         }
         
         // Register schemas if we have any
@@ -1169,6 +1623,7 @@ impl DocumentedRouter {
                 &parameters,
                 &request_body,
                 &response_type,
+                &error_type,
                 &responses
             );
             
@@ -1423,6 +1878,7 @@ fn create_operation_with_params_and_responses(
     parameter_docs: &[ParameterDoc],
     request_body_doc: &Option<RequestBodyDoc>,
     response_type: &Option<String>,
+    error_type: &Option<String>,
     response_docs: &[ResponseDoc]
 ) -> Operation {
     let mut operation = Operation::default();
@@ -1590,6 +2046,39 @@ fn create_operation_with_params_and_responses(
             StatusCode::Code(200),
             ReferenceOr::Item(success_response)
         );
+        
+        // Add automatic error responses if we have an error type
+        if let Some(ref err_type) = error_type {
+            let common_errors = vec![
+                (400, "Bad Request"),
+                (500, "Internal Server Error"),
+            ];
+            
+            for (status_code, description) in common_errors {
+                let mut error_response = ApiResponse {
+                    description: description.to_string(),
+                    ..Default::default()
+                };
+                
+                // Add error schema content
+                let mut content = Content::default();
+                let schema = ReferenceOr::Reference {
+                    reference: format!("#/components/schemas/{err_type}"),
+                };
+                
+                content.insert("application/json".to_string(), MediaType {
+                    schema: Some(schema),
+                    ..Default::default()
+                });
+                
+                error_response.content = content;
+                
+                responses.responses.insert(
+                    StatusCode::Code(status_code),
+                    ReferenceOr::Item(error_response)
+                );
+            }
+        }
     } else {
         // Add documented responses
         for response_doc in response_docs {
@@ -1598,8 +2087,69 @@ fn create_operation_with_params_and_responses(
                 ..Default::default()
             };
             
-            // Add response content with schema for 200 responses if we have a response type
-            if response_doc.status_code == 200 {
+            // Handle response content if specified
+            if let Some(ref content_info) = response_doc.content {
+                let mut content = Content::default();
+                
+                // Use schema from content info or fallback to detected response type for 200 responses
+                let schema = if let Some(ref schema_name) = content_info.schema {
+                    ReferenceOr::Reference {
+                        reference: format!("#/components/schemas/{schema_name}"),
+                    }
+                } else if response_doc.status_code == 200 {
+                    if let Some(ref resp_type) = response_type {
+                        ReferenceOr::Reference {
+                            reference: format!("#/components/schemas/{resp_type}"),
+                        }
+                    } else {
+                        // Fallback to generic object
+                        ReferenceOr::Item(Schema {
+                            schema_data: Default::default(),
+                            schema_kind: SchemaKind::Type(Type::Object(Default::default())),
+                        })
+                    }
+                } else {
+                    // Fallback to generic object for error responses
+                    ReferenceOr::Item(Schema {
+                        schema_data: Default::default(),
+                        schema_kind: SchemaKind::Type(Type::Object(Default::default())),
+                    })
+                };
+                
+                // Build media type with schema and examples
+                let mut media_type = MediaType {
+                    schema: Some(schema),
+                    ..Default::default()
+                };
+                
+                // Add examples if provided
+                if let Some(ref examples) = response_doc.examples {
+                    for example in examples {
+                        let example_value = if example.value.starts_with('{') || example.value.starts_with('[') {
+                            // Try to parse as JSON
+                            serde_json::from_str::<serde_json::Value>(&example.value)
+                                .unwrap_or_else(|_| serde_json::Value::String(example.value.clone()))
+                        } else {
+                            serde_json::Value::String(example.value.clone())
+                        };
+                        
+                        media_type.examples.insert(
+                            example.name.clone(),
+                            ReferenceOr::Item(openapiv3::Example {
+                                summary: example.summary.clone(),
+                                description: None,
+                                value: Some(example_value),
+                                external_value: None,
+                                extensions: Default::default(),
+                            })
+                        );
+                    }
+                }
+                
+                content.insert(content_info.media_type.clone(), media_type);
+                response.content = content;
+            } else if response_doc.status_code == 200 {
+                // Fallback: Add schema for 200 responses if we have a response type
                 if let Some(ref resp_type) = response_type {
                     let mut content = Content::default();
                     let schema = ReferenceOr::Reference {
@@ -1620,6 +2170,57 @@ fn create_operation_with_params_and_responses(
                 ReferenceOr::Item(response)
             );
         }
+        
+        // Add automatic error responses if we have an error type and no manual error responses
+        if let Some(ref err_type) = error_type {
+            let has_manual_error_responses = response_docs.iter().any(|r| r.status_code >= 400);
+            
+            if !has_manual_error_responses {
+                // Add common error responses automatically
+                let common_errors = vec![
+                    (400, "Bad Request"),
+                    (401, "Unauthorized"), 
+                    (403, "Forbidden"),
+                    (404, "Not Found"),
+                    (500, "Internal Server Error"),
+                ];
+                
+                for (status_code, description) in common_errors {
+                    // Skip 404 for non-GET methods that don't have path parameters
+                    if status_code == 404 && *method != Method::GET && !path.contains('{') {
+                        continue;
+                    }
+                    
+                    // Skip 401/403 unless it's a modifying operation
+                    if (status_code == 401 || status_code == 403) && *method == Method::GET {
+                        continue;
+                    }
+                    
+                    let mut error_response = ApiResponse {
+                        description: description.to_string(),
+                        ..Default::default()
+                    };
+                    
+                    // Add error schema content
+                    let mut content = Content::default();
+                    let schema = ReferenceOr::Reference {
+                        reference: format!("#/components/schemas/{err_type}"),
+                    };
+                    
+                    content.insert("application/json".to_string(), MediaType {
+                        schema: Some(schema),
+                        ..Default::default()
+                    });
+                    
+                    error_response.content = content;
+                    
+                    responses.responses.insert(
+                        StatusCode::Code(status_code),
+                        ReferenceOr::Item(error_response)
+                    );
+                }
+            }
+        }
     }
     
     operation.responses = responses;
@@ -1636,7 +2237,7 @@ fn create_operation_with_responses(
     description: Option<&str>,
     response_docs: &[ResponseDoc]
 ) -> Operation {
-    create_operation_with_params_and_responses(path, method, summary, description, &[], &None, &None, response_docs)
+    create_operation_with_params_and_responses(path, method, summary, description, &[], &None, &None, &None, response_docs)
 }
 
 /// Convenience macro for creating a new `DocumentedRouter`.
@@ -1806,10 +2407,14 @@ mod tests {
             ResponseDoc {
                 status_code: 200,
                 description: "Success".to_string(),
+                content: None,
+                examples: None,
             },
             ResponseDoc {
                 status_code: 404,
                 description: "Not found".to_string(),
+                content: None,
+                examples: None,
             },
         ];
         
@@ -1884,14 +2489,19 @@ mod tests {
             request_body: None,
             request_body_type: None,
             response_type: None,
+            error_type: None,
             responses: vec![
                 ResponseDoc {
                     status_code: 200,
                     description: "Test successful".to_string(),
+                    content: None,
+                    examples: None,
                 },
                 ResponseDoc {
                     status_code: 400,
                     description: "Test failed".to_string(),
+                    content: None,
+                    examples: None,
                 }
             ],
         }
@@ -1940,6 +2550,8 @@ mod tests {
         let response_doc = ResponseDoc {
             status_code: 201,
             description: "Created successfully".to_string(),
+            content: None,
+            examples: None,
         };
         
         assert_eq!(response_doc.status_code, 201);

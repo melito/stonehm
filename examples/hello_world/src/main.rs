@@ -4,7 +4,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use stonehm::{api_router, api_handler};
-use stonehm_macros::StoneSchema;
+use stonehm_macros::{StoneSchema, api_error};
 
 #[derive(Serialize, StoneSchema)]
 struct HelloResponse {
@@ -31,6 +31,25 @@ struct UserResponse {
     id: u32,
     name: String,
     email: String,
+}
+
+#[derive(Serialize, StoneSchema)]
+struct ErrorResponse {
+    error: String,
+    code: u32,
+}
+
+#[derive(Serialize, StoneSchema)]
+#[api_error]
+enum ApiError {
+    /// 404: User not found
+    UserNotFound { id: u32 },
+    
+    /// 400: Invalid input provided  
+    InvalidInput { message: String },
+    
+    /// 500: Internal server error
+    DatabaseError,
 }
 
 /// Returns a simple hello world message
@@ -88,6 +107,66 @@ async fn get_user(Path(UserId { id }): Path<UserId>) -> Json<UserResponse> {
     })
 }
 
+/// Delete a user account
+///
+/// Permanently deletes a user account and all associated data.
+/// This action cannot be undone.
+///
+/// # Parameters
+/// - id (path): The unique identifier of the user to delete
+///
+/// # Responses
+/// - 204: User successfully deleted
+/// - 404:
+///   description: User not found
+///   content:
+///     application/json:
+///       schema: ErrorResponse
+///   examples:
+///     - name: user_not_found
+///       summary: User ID does not exist
+///       value: {"error": "User not found", "code": 404}
+/// - 403:
+///   description: Insufficient permissions to delete user
+///   content:
+///     application/json:
+///       schema: ErrorResponse
+#[api_handler]
+async fn delete_user(Path(UserId { id }): Path<UserId>) {
+    // Implementation would go here
+    println!("Deleting user {id}")
+}
+
+/// Create a new user with automatic error handling
+///
+/// Creates a new user account. This demonstrates automatic error response
+/// generation based on the Result return type.
+///
+/// # Request Body
+/// Content-Type: application/json
+/// User information with name and email fields.
+#[api_handler]
+async fn create_user_with_errors(Json(payload): Json<GreetRequest>) -> Result<Json<UserResponse>, ApiError> {
+    // Simulate some basic validation
+    if payload.name.is_empty() {
+        return Err(ApiError::InvalidInput { 
+            message: "Name cannot be empty".to_string() 
+        });
+    }
+    
+    // Simulate a database lookup
+    if payload.name == "existing_user" {
+        return Err(ApiError::UserNotFound { id: 123 });
+    }
+    
+    let name = payload.name;
+    Ok(Json(UserResponse {
+        id: 42,
+        name: name.clone(),
+        email: format!("{}@example.com", name.to_lowercase()),
+    }))
+}
+
 
 #[tokio::main]
 async fn main() {
@@ -96,7 +175,9 @@ async fn main() {
         let router = api_router!("Hello World API", "1.0.0")
             .get("/", hello)
             .post("/greet", greet) 
-            .get("/users/:id", get_user);
+            .get("/users/:id", get_user)
+            .delete("/users/:id", delete_user)
+            .post("/users", create_user_with_errors);
             
         let spec = router.openapi_spec();
         println!("{}", serde_json::to_string_pretty(&spec).unwrap());
@@ -111,6 +192,8 @@ async fn main() {
             .get("/", hello)
             .post("/greet", greet) 
             .get("/users/:id", get_user)
+            .delete("/users/:id", delete_user)
+            .post("/users", create_user_with_errors)
             .with_openapi_routes()  // Default: /openapi.json and /openapi.yaml
             .into_router();
 
@@ -128,6 +211,8 @@ async fn main() {
         .get("/", hello)
         .post("/greet", greet) 
         .get("/users/:id", get_user)
+        .delete("/users/:id", delete_user)
+        .post("/users", create_user_with_errors)
         .with_openapi_routes_prefix("/api/docs")  // Custom: /api/docs.json and /api/docs.yaml
         .into_router();
 
@@ -152,6 +237,8 @@ async fn run_server(app: axum::Router, openapi_urls: Vec<&str>) {
     println!("  - GET /");
     println!("  - POST /greet");
     println!("  - GET /users/:id");
+    println!("  - DELETE /users/:id");
+    println!("  - POST /users");
     println!();
     println!("Usage:");
     println!("  cargo run                 # Uses custom prefix /api/docs");
