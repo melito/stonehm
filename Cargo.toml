@@ -5,6 +5,7 @@ edition = "2021"
 description = "Automatic OpenAPI 3.0 generation for Axum applications"
 license = "MIT"
 repository = "https://github.com/melito/stonehm"
+readme = "README.md"
 keywords = ["openapi", "axum", "api", "documentation", "swagger"]
 categories = ["web-programming", "api-bindings"]
 

@@ -100,21 +100,28 @@
 //! ```rust,no_run
 //! use stonehm::api_handler;
 //! use stonehm_macros::StoneSchema;
-//! use axum::Json;
+//! use axum::{Json, extract::Path};
 //! use serde::Serialize;
 //! 
 //! #[derive(Serialize, StoneSchema)]
-//! struct User { id: u32 }
+//! struct User { 
+//!     id: u32,
+//!     name: String,
+//! }
 //! 
 //! /// Get user by ID
 //! ///
+//! /// Retrieves a user's information by their unique identifier.
+//! /// The ID must be a valid positive integer.
+//! ///
 //! /// # Parameters
 //! /// - id (path): The user's unique identifier
-//! /// - include_posts (query): Whether to include user's posts
-//! /// - authorization (header): Bearer token for authentication
 //! #[api_handler]
-//! async fn get_user() -> Json<User> {
-//!     Json(User { id: 1 })
+//! async fn get_user(Path(id): Path<u32>) -> Json<User> {
+//!     Json(User { 
+//!         id, 
+//!         name: format!("User {}", id),
+//!     })
 //! }
 //! ```
 //!
@@ -145,7 +152,7 @@
 //! ```
 //!
 //! ### Responses
-//! Document possible response status codes:
+//! Document possible response status codes and their descriptions:
 //!
 //! ```rust,no_run
 //! use stonehm::api_handler;
@@ -154,20 +161,51 @@
 //! use serde::Serialize;
 //! 
 //! #[derive(Serialize, StoneSchema)]
-//! struct User { id: u32 }
+//! struct User { id: u32, name: String }
 //! 
-//! /// Update user information
+//! /// Get user profile
+//! ///
+//! /// Returns the user's profile information. The response body will be a User object
+//! /// containing the user's ID and name.
 //! ///
 //! /// # Responses
-//! /// - 200: User successfully updated
-//! /// - 400: Invalid user data provided
+//! /// - 200: Successfully retrieved user profile (returns User object)
 //! /// - 404: User not found
 //! /// - 500: Internal server error
 //! #[api_handler]
-//! async fn update_user() -> Json<User> {
-//!     Json(User { id: 1 })
+//! async fn get_user_profile() -> Json<User> {
+//!     Json(User { id: 1, name: "John Doe".to_string() })
 //! }
 //! ```
+//!
+//! **Response Schema Generation**: 
+//! 
+//! The crate automatically generates comprehensive response documentation:
+//! - ✅ **Status codes and descriptions** are extracted from `# Responses` documentation
+//! - ✅ **Request body schemas** are automatically generated and included
+//! - ✅ **Response body schemas** are automatically detected and included for 200 responses
+//! - ✅ **Schema references** point to the generated component schemas
+//! 
+//! For 200 responses, the generated OpenAPI will include both the description and the 
+//! complete response body structure with proper JSON schema definitions:
+//! 
+//! ```json
+//! "responses": {
+//!   "200": {
+//!     "description": "Successfully retrieved user profile",
+//!     "content": {
+//!       "application/json": {
+//!         "schema": {
+//!           "$ref": "#/components/schemas/User"
+//!         }
+//!       }
+//!     }
+//!   }
+//! }
+//! ```
+//! 
+//! Error responses (400, 404, 500, etc.) include descriptions but no body schema, 
+//! which is typically correct for error responses.
 //!
 //! ## Schema Generation
 //!
@@ -1075,6 +1113,7 @@ impl DocumentedRouter {
         let description = docs.description;
         let parameters = docs.parameters;
         let request_body = docs.request_body;
+        let response_type = docs.response_type;
         let responses = docs.responses;
         let mut routes = self.routes.lock().unwrap();
         routes.push(RouteInfo {
@@ -1093,6 +1132,10 @@ impl DocumentedRouter {
             if let Some(ref schema_type) = body.schema_type {
                 schema_types.push(schema_type.clone());
             }
+        }
+        // Register response schema type
+        if let Some(ref resp_type) = response_type {
+            schema_types.push(resp_type.clone());
         }
         
         // Register schemas if we have any
@@ -1125,6 +1168,7 @@ impl DocumentedRouter {
                 description, 
                 &parameters,
                 &request_body,
+                &response_type,
                 &responses
             );
             
@@ -1378,6 +1422,7 @@ fn create_operation_with_params_and_responses(
     description: Option<&str>,
     parameter_docs: &[ParameterDoc],
     request_body_doc: &Option<RequestBodyDoc>,
+    response_type: &Option<String>,
     response_docs: &[ResponseDoc]
 ) -> Operation {
     let mut operation = Operation::default();
@@ -1520,11 +1565,27 @@ fn create_operation_with_params_and_responses(
     let mut responses = Responses::default();
     
     if response_docs.is_empty() {
-        // Add default response if none specified
-        let success_response = ApiResponse {
+        // Add default response if none specified with schema if available
+        let mut success_response = ApiResponse {
             description: "Successful response".to_string(),
             ..Default::default()
         };
+        
+        // Add response content with schema if we have a response type
+        if let Some(ref resp_type) = response_type {
+            let mut content = Content::default();
+            let schema = ReferenceOr::Reference {
+                reference: format!("#/components/schemas/{resp_type}"),
+            };
+            
+            content.insert("application/json".to_string(), MediaType {
+                schema: Some(schema),
+                ..Default::default()
+            });
+            
+            success_response.content = content;
+        }
+        
         responses.responses.insert(
             StatusCode::Code(200),
             ReferenceOr::Item(success_response)
@@ -1532,10 +1593,27 @@ fn create_operation_with_params_and_responses(
     } else {
         // Add documented responses
         for response_doc in response_docs {
-            let response = ApiResponse {
+            let mut response = ApiResponse {
                 description: response_doc.description.clone(),
                 ..Default::default()
             };
+            
+            // Add response content with schema for 200 responses if we have a response type
+            if response_doc.status_code == 200 {
+                if let Some(ref resp_type) = response_type {
+                    let mut content = Content::default();
+                    let schema = ReferenceOr::Reference {
+                        reference: format!("#/components/schemas/{resp_type}"),
+                    };
+                    
+                    content.insert("application/json".to_string(), MediaType {
+                        schema: Some(schema),
+                        ..Default::default()
+                    });
+                    
+                    response.content = content;
+                }
+            }
             
             responses.responses.insert(
                 StatusCode::Code(response_doc.status_code),
@@ -1558,7 +1636,7 @@ fn create_operation_with_responses(
     description: Option<&str>,
     response_docs: &[ResponseDoc]
 ) -> Operation {
-    create_operation_with_params_and_responses(path, method, summary, description, &[], &None, response_docs)
+    create_operation_with_params_and_responses(path, method, summary, description, &[], &None, &None, response_docs)
 }
 
 /// Convenience macro for creating a new `DocumentedRouter`.
