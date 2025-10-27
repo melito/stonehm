@@ -159,6 +159,11 @@ async fn create_user_with_errors(Json(payload): Json<GreetRequest>) -> Result<Js
         return Err(ApiError::UserNotFound { id: 123 });
     }
     
+    // Simulate a database error
+    if payload.name == "db_error" {
+        return Err(ApiError::DatabaseError);
+    }
+    
     let name = payload.name;
     Ok(Json(UserResponse {
         id: 42,
@@ -184,42 +189,36 @@ async fn main() {
         return;
     }
     
-    // Example 1: Default OpenAPI routes (uses /openapi prefix)
-    if std::env::args().any(|arg| arg == "--default") {
-        println!("Using default OpenAPI routes...");
-        
-        let app = api_router!("Hello World API", "1.0.0")
-            .get("/", hello)
-            .post("/greet", greet) 
-            .get("/users/:id", get_user)
-            .delete("/users/:id", delete_user)
-            .post("/users", create_user_with_errors)
-            .with_openapi_routes()  // Default: /openapi.json and /openapi.yaml
-            .into_router();
-
-        run_server(app, vec![
-            "  - http://127.0.0.1:3000/openapi.json",  
-            "  - http://127.0.0.1:3000/openapi.yaml",
-        ]).await;
-        return;
-    }
-
-    // Example 2: Custom OpenAPI routes prefix
-    println!("Using custom OpenAPI routes with /api/docs prefix...");
-    
-    let app = api_router!("Hello World API", "1.0.0")
+    // Create router with routes
+    let router = api_router!("Hello World API", "1.0.0")
         .get("/", hello)
         .post("/greet", greet) 
         .get("/users/:id", get_user)
         .delete("/users/:id", delete_user)
-        .post("/users", create_user_with_errors)
-        .with_openapi_routes_prefix("/api/docs")  // Custom: /api/docs.json and /api/docs.yaml
-        .into_router();
+        .post("/users", create_user_with_errors);
+    
+    // Add OpenAPI routes based on flag
+    let (app, openapi_urls) = if std::env::args().any(|arg| arg == "--default") {
+        println!("Using default OpenAPI routes...");
+        (
+            router.with_openapi_routes().into_router(),
+            vec![
+                "  - http://127.0.0.1:3000/openapi.json",  
+                "  - http://127.0.0.1:3000/openapi.yaml",
+            ]
+        )
+    } else {
+        println!("Using custom OpenAPI routes with /api/docs prefix...");
+        (
+            router.with_openapi_routes_prefix("/api/docs").into_router(),
+            vec![
+                "  - http://127.0.0.1:3000/api/docs.json",  
+                "  - http://127.0.0.1:3000/api/docs.yaml",
+            ]
+        )
+    };
 
-    run_server(app, vec![
-        "  - http://127.0.0.1:3000/api/docs.json",  
-        "  - http://127.0.0.1:3000/api/docs.yaml",
-    ]).await;
+    run_server(app, openapi_urls).await;
 }
 
 async fn run_server(app: axum::Router, openapi_urls: Vec<&str>) {

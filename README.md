@@ -10,47 +10,6 @@ stonehm automatically generates comprehensive OpenAPI 3.0 specifications for Axu
 - Compile-time processing with zero runtime overhead
 - Drop-in replacement for `axum::Router`
 
-## What Makes stonehm Different
-
-**Traditional approach**: Write code, then write separate OpenAPI specs
-```yaml
-# Separate OpenAPI file to maintain
-paths:
-  /users/{id}:
-    get:
-      summary: Get user by ID
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-      responses:
-        '200':
-          description: User found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/User'
-        '404':
-          description: User not found
-```
-
-**stonehm approach**: Write natural documentation, get OpenAPI automatically
-```rust
-/// Get user by ID
-///
-/// Retrieves a user's information using their unique identifier.
-#[api_handler]
-async fn get_user(Path(id): Path<u32>) -> Result<Json<User>, ApiError> {
-    // Implementation automatically generates:
-    // - Path parameter documentation  
-    // - Success response with User schema
-    // - Error responses with ApiError schema
-    // - Complete OpenAPI 3.0 specification
-}
-```
-
 ## Quick Start
 
 ### Installation
