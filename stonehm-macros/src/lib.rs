@@ -2,6 +2,15 @@ use proc_macro::TokenStream;
 use quote::quote;
 use syn::{parse_macro_input, ItemFn, Attribute, Lit, Meta, Expr, Type, FnArg, ReturnType, PathArguments, GenericArgument, DeriveInput, Data, Fields};
 
+/// Sanitize a type string to create a valid Rust identifier
+fn sanitize_type_for_identifier(type_str: &str) -> String {
+    type_str
+        .replace(['<', '>', ' ', ',', ':', ';', '(', ')', '[', ']', '{', '}', '&', '*'], "_")
+        .replace("__", "_")
+        .trim_matches('_')
+        .to_string()
+}
+
 #[derive(Debug, Clone)]
 struct ResponseDoc {
     status_code: u16,
@@ -116,8 +125,8 @@ fn extract_docs(attrs: &[Attribute]) -> ParsedDocs {
             },
             "request_body" => {
                 // Parse request body format like "Content-Type: application/json" followed by description
-                if line.starts_with("Content-Type:") {
-                    let content_type = line["Content-Type:".len()..].trim().to_string();
+                if let Some(stripped) = line.strip_prefix("Content-Type:") {
+                    let content_type = stripped.trim().to_string();
                     request_body = Some(RequestBodyDoc {
                         description: String::new(),
                         content_type,
@@ -293,7 +302,7 @@ pub fn api_handler(_attr: TokenStream, item: TokenStream) -> TokenStream {
     
     // Generate metadata constant using a predictable naming pattern
     let metadata_const_name = syn::Ident::new(
-        &format!("__DOCS_{}", fn_name.to_string().to_uppercase()),
+        &format!("__docs_{}", fn_name.to_string().to_lowercase()),
         fn_name.span()
     );
     
@@ -303,8 +312,9 @@ pub fn api_handler(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let mut schema_functions = Vec::new();
     
     if let Some(ref req_type) = request_body_type {
+        let sanitized_type = sanitize_type_for_identifier(req_type).to_lowercase();
         let schema_fn_name = syn::Ident::new(
-            &format!("__SCHEMA_{}", req_type.to_uppercase().replace(' ', "_")),
+            &format!("__schema_{sanitized_type}"),
             fn_name.span()
         );
         let req_type_ident: syn::Type = syn::parse_str(req_type).unwrap_or_else(|_| {
@@ -329,8 +339,9 @@ pub fn api_handler(_attr: TokenStream, item: TokenStream) -> TokenStream {
     }
     
     if let Some(ref resp_type) = response_type {
+        let sanitized_type = sanitize_type_for_identifier(resp_type).to_lowercase();
         let schema_fn_name = syn::Ident::new(
-            &format!("__SCHEMA_{}", resp_type.to_uppercase().replace(' ', "_")),
+            &format!("__schema_{sanitized_type}"),
             fn_name.span()
         );
         let resp_type_ident: syn::Type = syn::parse_str(resp_type).unwrap_or_else(|_| {
@@ -399,9 +410,38 @@ pub fn documented_router(_input: TokenStream) -> TokenStream {
     TokenStream::from(output)
 }
 
-/// A simpler replacement for schemars::JsonSchema
-#[proc_macro_derive(SimpleSchema)]
-pub fn derive_simple_schema(input: TokenStream) -> TokenStream {
+/// Derive macro for Stonehm's schema generation system.
+/// 
+/// This derive macro automatically implements the `StoneSchema` trait for structs,
+/// enabling automatic JSON schema generation for OpenAPI specifications.
+/// 
+/// # Examples
+/// 
+/// ```rust
+/// use serde::Serialize;
+/// use stonehm_macros::StoneSchema;
+/// 
+/// #[derive(Serialize, StoneSchema)]
+/// struct User {
+///     id: u32,
+///     name: String,
+///     email: String,
+///     active: bool,
+/// }
+/// 
+/// // The StoneSchema trait is now implemented
+/// let schema = User::schema();
+/// ```
+/// 
+/// # Generated Schema
+/// 
+/// The macro generates a JSON schema with:
+/// - `type: "object"` for structs
+/// - `properties` containing each field with appropriate types
+/// - `required` array listing all fields
+/// - `title` set to the struct name
+#[proc_macro_derive(StoneSchema)]
+pub fn derive_stone_schema(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     let name = &input.ident;
     let name_str = name.to_string();
@@ -478,9 +518,15 @@ pub fn derive_simple_schema(input: TokenStream) -> TokenStream {
     let schema_fn_name = syn::Ident::new(&format!("__{}_schema", name.to_string().to_lowercase()), name.span());
     
     let expanded = quote! {
+        impl stonehm::StoneSchema for #name {
+            fn schema() -> stonehm::serde_json::Value {
+                #schema_json
+            }
+        }
+        
         impl #name {
             pub fn schema() -> stonehm::serde_json::Value {
-                #schema_json
+                <Self as stonehm::StoneSchema>::schema()
             }
         }
         

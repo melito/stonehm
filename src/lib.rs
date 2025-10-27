@@ -1,3 +1,190 @@
+//! # Stonehm - Automatic OpenAPI 3.0 Generation for Axum
+//!
+//! Stonehm is a Rust crate that automatically generates OpenAPI 3.0 specifications
+//! for Axum web applications by analyzing handler functions and their documentation.
+//!
+//! ## Features
+//!
+//! - **Automatic OpenAPI generation**: Extract documentation from function comments
+//! - **Schema generation**: Automatically generate JSON schemas for request/response types
+//! - **Zero runtime overhead**: All processing happens at compile time
+//! - **Axum integration**: Drop-in replacement for `axum::Router`
+//! - **Documentation-driven**: Uses standard Rust doc comments
+//!
+//! ## Quick Start
+//!
+//! Add stonehm to your `Cargo.toml`:
+//!
+//! ```toml
+//! [dependencies]
+//! stonehm = "0.1"
+//! axum = "0.7"
+//! serde = { version = "1.0", features = ["derive"] }
+//! tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+//! ```
+//!
+//! ## Basic Usage
+//!
+//! ```rust,no_run
+//! use axum::Json;
+//! use serde::{Deserialize, Serialize};
+//! use stonehm::{api_router, api_handler, StoneSchema};
+//!
+//! #[derive(Serialize, StoneSchema)]
+//! struct HelloResponse {
+//!     message: String,
+//! }
+//!
+//! #[derive(Deserialize, StoneSchema)]
+//! struct GreetRequest {
+//!     name: String,
+//! }
+//!
+//! #[derive(Serialize, StoneSchema)]
+//! struct GreetResponse {
+//!     greeting: String,
+//! }
+//!
+//! /// Returns a simple hello world message
+//! ///
+//! /// This endpoint doesn't require any parameters and always returns
+//! /// the same friendly greeting message.
+//! ///
+//! /// # Responses
+//! /// - 200: Successfully returned hello message
+//! #[api_handler]
+//! async fn hello() -> Json<HelloResponse> {
+//!     Json(HelloResponse {
+//!         message: "Hello, World!".to_string(),
+//!     })
+//! }
+//!
+//! /// Creates a personalized greeting
+//! ///
+//! /// Takes a name in the request body and returns a personalized
+//! /// greeting message.
+//! ///
+//! /// # Request Body
+//! /// Content-Type: application/json
+//! /// The request body should contain a JSON object with a name field.
+//! ///
+//! /// # Responses
+//! /// - 200: Successfully created personalized greeting
+//! /// - 400: Invalid request body
+//! #[api_handler]
+//! async fn greet(Json(payload): Json<GreetRequest>) -> Json<GreetResponse> {
+//!     Json(GreetResponse {
+//!         greeting: format!("Hello, {}!", payload.name),
+//!     })
+//! }
+//!
+//! // Note: This example shows the API structure but doesn't compile
+//! // due to missing tokio dependency in doctests
+//! fn main() {
+//!     let app = api_router!("My API", "1.0.0")
+//!         .get("/", hello)
+//!         .post("/greet", greet)
+//!         .with_openapi_routes()  // Adds /openapi.json and /openapi.yaml
+//!         .into_router();
+//! }
+//! ```
+//!
+//! ## Documentation Format
+//!
+//! Stonehm extracts documentation from standard Rust doc comments using these sections:
+//!
+//! ### Parameters
+//! Document path, query, and header parameters:
+//!
+//! ```rust,no_run
+//! use stonehm::{api_handler, StoneSchema};
+//! use axum::Json;
+//! use serde::Serialize;
+//! 
+//! #[derive(Serialize, StoneSchema)]
+//! struct User { id: u32 }
+//! 
+//! /// Get user by ID
+//! ///
+//! /// # Parameters
+//! /// - id (path): The user's unique identifier
+//! /// - include_posts (query): Whether to include user's posts
+//! /// - authorization (header): Bearer token for authentication
+//! #[api_handler]
+//! async fn get_user() -> Json<User> {
+//!     Json(User { id: 1 })
+//! }
+//! ```
+//!
+//! ### Request Body
+//! Document the expected request body:
+//!
+//! ```rust,no_run
+//! use stonehm::{api_handler, StoneSchema};
+//! use axum::Json;
+//! use serde::{Serialize, Deserialize};
+//! 
+//! #[derive(Deserialize, StoneSchema)]
+//! struct CreateUserRequest { name: String }
+//! 
+//! #[derive(Serialize, StoneSchema)]
+//! struct User { id: u32 }
+//! 
+//! /// Create a new user
+//! ///
+//! /// # Request Body
+//! /// Content-Type: application/json
+//! /// User information including name, email, and optional preferences.
+//! #[api_handler]
+//! async fn create_user(Json(user): Json<CreateUserRequest>) -> Json<User> {
+//!     Json(User { id: 1 })
+//! }
+//! ```
+//!
+//! ### Responses
+//! Document possible response status codes:
+//!
+//! ```rust,no_run
+//! use stonehm::{api_handler, StoneSchema};
+//! use axum::Json;
+//! use serde::Serialize;
+//! 
+//! #[derive(Serialize, StoneSchema)]
+//! struct User { id: u32 }
+//! 
+//! /// Update user information
+//! ///
+//! /// # Responses
+//! /// - 200: User successfully updated
+//! /// - 400: Invalid user data provided
+//! /// - 404: User not found
+//! /// - 500: Internal server error
+//! #[api_handler]
+//! async fn update_user() -> Json<User> {
+//!     Json(User { id: 1 })
+//! }
+//! ```
+//!
+//! ## Schema Generation
+//!
+//! Use the `StoneSchema` derive macro on your request/response types:
+//!
+//! ```rust
+//! use serde::Serialize;
+//! use stonehm::StoneSchema;
+//! 
+//! #[derive(Serialize, StoneSchema)]
+//! struct User {
+//!     id: u32,
+//!     name: String,
+//!     email: String,
+//!     active: bool,
+//! }
+//! ```
+//!
+//! This automatically generates JSON Schema definitions that are included
+//! in the OpenAPI specification.
+
 use axum::{
     Router,
     routing::{get, post, put, delete, patch, MethodRouter},
@@ -12,17 +199,117 @@ use openapiv3::{
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 pub use inventory;
-pub use stonehm_macros::{api_handler, SimpleSchema};
+pub use stonehm_macros::{api_handler, StoneSchema};
 
 // Re-export dependencies so users don't need to add them
 pub use serde;
 pub use serde_json;
 
-/// Simple schema generation macro to replace schemars::schema_for!
+/// Trait for types that can generate their own JSON schema using Stonehm's schema system.
+/// 
+/// This trait allows types to provide their own JSON schema representation
+/// for OpenAPI specification generation. It's typically implemented automatically
+/// via the `#[derive(StoneSchema)]` macro, which is part of the Stonehm ecosystem.
+/// 
+/// The generated schema follows a simplified subset of JSON Schema that is
+/// compatible with OpenAPI 3.0 specifications.
+/// 
+/// # Examples
+/// 
+/// ## Using the derive macro (recommended)
+/// 
+/// ```rust
+/// use serde::{Serialize, Deserialize};
+/// use stonehm::StoneSchema;
+/// 
+/// #[derive(Serialize, Deserialize, StoneSchema)]
+/// struct User {
+///     id: u32,
+///     name: String,
+///     email: String,
+///     active: bool,
+/// }
+/// 
+/// // The schema is automatically generated
+/// let schema = User::schema();
+/// println!("{}", serde_json::to_string_pretty(&schema).unwrap());
+/// ```
+/// 
+/// ## Manual implementation
+/// 
+/// ```rust
+/// use stonehm::StoneSchema;
+/// use serde_json::json;
+/// 
+/// struct CustomType {
+///     value: String,
+/// }
+/// 
+/// impl StoneSchema for CustomType {
+///     fn schema() -> serde_json::Value {
+///         json!({
+///             "type": "object",
+///             "properties": {
+///                 "value": {
+///                     "type": "string",
+///                     "description": "A custom value"
+///                 }
+///             },
+///             "required": ["value"]
+///         })
+///     }
+/// }
+/// ```
+/// 
+/// # Schema Format
+/// 
+/// The generated schemas follow this format:
+/// - `type`: The JSON Schema type ("object", "string", "number", etc.)
+/// - `properties`: For objects, a map of property names to their schemas
+/// - `required`: Array of required property names
+/// - `title`: The name of the type
+/// 
+/// # Type Mapping
+/// 
+/// The derive macro maps Rust types to JSON Schema types as follows:
+/// - `String`, `&str` → `"string"`
+/// - `i32`, `i64`, `u32`, `u64`, etc. → `"integer"`
+/// - `f32`, `f64` → `"number"`
+/// - `bool` → `"boolean"`
+/// - Complex types → `"string"` (fallback)
+pub trait StoneSchema {
+    /// Generate a JSON schema for this type.
+    /// 
+    /// Returns a `serde_json::Value` containing the JSON schema representation
+    /// of this type, suitable for inclusion in an OpenAPI specification.
+    fn schema() -> serde_json::Value;
+}
+
+/// Schema generation macro using Stonehm's schema system.
+/// 
+/// This macro provides a convenient way to generate schemas for types that
+/// implement the `StoneSchema` trait. It's similar to `schemars::schema_for!`
+/// but uses Stonehm's simpler schema system.
+/// 
+/// # Examples
+/// 
+/// ```rust,no_run
+/// use stonehm::{stone_schema_for, StoneSchema};
+/// use serde::Serialize;
+/// 
+/// #[derive(Serialize, StoneSchema)]
+/// struct User {
+///     id: u32,
+///     name: String,
+/// }
+/// 
+/// let schema = stone_schema_for!(User);
+/// println!("{}", serde_json::to_string_pretty(&schema).unwrap());
+/// ```
 #[macro_export]
-macro_rules! simple_schema_for {
+macro_rules! stone_schema_for {
     ($type:ty) => {{
-        // For types that implement our SimpleSchema trait
+        // For types that implement our StoneSchema trait
         <$type>::schema()
     }};
 }
@@ -44,57 +331,322 @@ pub struct SchemaEntry {
 inventory::collect!(SchemaEntry);
 
 
+/// Documentation for a single HTTP response.
+/// 
+/// This struct represents information about a specific HTTP response that an API endpoint
+/// can return, including the status code and a human-readable description.
+/// 
+/// # Examples
+/// 
+/// ```rust
+/// use stonehm::ResponseDoc;
+/// 
+/// let success_response = ResponseDoc {
+///     status_code: 200,
+///     description: "User successfully created".to_string(),
+/// };
+/// 
+/// let error_response = ResponseDoc {
+///     status_code: 400,
+///     description: "Invalid user data provided".to_string(),
+/// };
+/// ```
 #[derive(Debug, Clone)]
 pub struct ResponseDoc {
+    /// The HTTP status code (e.g., 200, 400, 404, 500)
     pub status_code: u16,
+    /// Human-readable description of when this response occurs
     pub description: String,
 }
 
+/// Documentation for a single API parameter.
+/// 
+/// This struct represents information about a parameter that an API endpoint accepts,
+/// including its name, description, and type (path, query, or header parameter).
+/// 
+/// # Examples
+/// 
+/// ```rust
+/// use stonehm::ParameterDoc;
+/// 
+/// let path_param = ParameterDoc {
+///     name: "user_id".to_string(),
+///     description: "The unique identifier of the user".to_string(),
+///     param_type: "path".to_string(),
+/// };
+/// 
+/// let query_param = ParameterDoc {
+///     name: "include_posts".to_string(),
+///     description: "Whether to include the user's posts".to_string(),
+///     param_type: "query".to_string(),
+/// };
+/// 
+/// let header_param = ParameterDoc {
+///     name: "authorization".to_string(),
+///     description: "Bearer token for authentication".to_string(),
+///     param_type: "header".to_string(),
+/// };
+/// ```
 #[derive(Debug, Clone)]
 pub struct ParameterDoc {
+    /// The name of the parameter (e.g., "user_id", "page", "authorization")
     pub name: String,
+    /// Human-readable description of the parameter's purpose
     pub description: String,
-    pub param_type: String, // path, query, header
+    /// The type of parameter: "path", "query", or "header"
+    pub param_type: String,
 }
 
+/// Documentation for an API request body.
+/// 
+/// This struct represents information about the request body that an API endpoint expects,
+/// including its description, content type, and optional schema type information.
+/// 
+/// # Examples
+/// 
+/// ```rust
+/// use stonehm::RequestBodyDoc;
+/// 
+/// let json_body = RequestBodyDoc {
+///     description: "User information for account creation".to_string(),
+///     content_type: "application/json".to_string(),
+///     schema_type: Some("CreateUserRequest".to_string()),
+/// };
+/// 
+/// let form_body = RequestBodyDoc {
+///     description: "File upload with metadata".to_string(),
+///     content_type: "multipart/form-data".to_string(),
+///     schema_type: None,
+/// };
+/// ```
 #[derive(Debug, Clone)]
 pub struct RequestBodyDoc {
+    /// Human-readable description of the request body content
     pub description: String,
+    /// The MIME type of the request body (e.g., "application/json")
     pub content_type: String,
-    pub schema_type: Option<String>, // The actual Rust type (e.g., "GreetRequest")
+    /// The actual Rust type name for schema generation (e.g., "GreetRequest")
+    pub schema_type: Option<String>,
 }
 
+/// Complete documentation information for an API handler.
+/// 
+/// This struct contains all the documentation metadata extracted from a handler function,
+/// including summary, description, parameters, request body, and response information.
+/// This is the primary struct used internally by the `#[api_handler]` macro to store
+/// and organize documentation data.
+/// 
+/// # Examples
+/// 
+/// ```rust
+/// use stonehm::{HandlerDocumentation, ParameterDoc, RequestBodyDoc, ResponseDoc};
+/// 
+/// let docs = HandlerDocumentation {
+///     summary: Some("Create a new user"),
+///     description: Some("Creates a new user account with the provided information"),
+///     parameters: vec![
+///         ParameterDoc {
+///             name: "api_version".to_string(),
+///             description: "API version to use".to_string(),
+///             param_type: "header".to_string(),
+///         }
+///     ],
+///     request_body: Some(RequestBodyDoc {
+///         description: "User creation data".to_string(),
+///         content_type: "application/json".to_string(),
+///         schema_type: Some("CreateUserRequest".to_string()),
+///     }),
+///     request_body_type: Some("CreateUserRequest".to_string()),
+///     response_type: Some("UserResponse".to_string()),
+///     responses: vec![
+///         ResponseDoc {
+///             status_code: 201,
+///             description: "User successfully created".to_string(),
+///         },
+///         ResponseDoc {
+///             status_code: 400,
+///             description: "Invalid user data".to_string(),
+///         },
+///     ],
+/// };
+/// ```
 #[derive(Debug, Clone)]
 pub struct HandlerDocumentation {
+    /// Brief one-line summary of what the handler does
     pub summary: Option<&'static str>,
+    /// Longer description providing more details about the handler
     pub description: Option<&'static str>,
+    /// List of parameters this handler accepts (path, query, header)
     pub parameters: Vec<ParameterDoc>,
+    /// Information about the expected request body, if any
     pub request_body: Option<RequestBodyDoc>,
-    pub request_body_type: Option<String>, // The actual Rust type for request body
-    pub response_type: Option<String>, // The actual Rust type for response
+    /// The actual Rust type name for the request body (for schema generation)
+    pub request_body_type: Option<String>,
+    /// The actual Rust type name for the response (for schema generation)
+    pub response_type: Option<String>,
+    /// List of possible responses this handler can return
     pub responses: Vec<ResponseDoc>,
 }
 
-// Keep the old struct for backwards compatibility
+/// Simplified handler metadata for backwards compatibility.
+/// 
+/// This struct provides a simpler version of handler documentation that only
+/// includes summary and description. It's maintained for backwards compatibility
+/// with older versions of the API. For new code, prefer using [`HandlerDocumentation`]
+/// which provides more complete information.
+/// 
+/// # Examples
+/// 
+/// ```rust
+/// use stonehm::HandlerMetadata;
+/// 
+/// let metadata = HandlerMetadata {
+///     summary: Some("Get user by ID"),
+///     description: Some("Retrieves a user account by their unique identifier"),
+/// };
+/// ```
+/// 
+/// # Migration
+/// 
+/// If you're currently using `HandlerMetadata`, consider migrating to `HandlerDocumentation`:
+/// 
+/// ```rust
+/// use stonehm::{HandlerMetadata, HandlerDocumentation};
+/// 
+/// // Old way (still supported)
+/// let old_metadata = HandlerMetadata {
+///     summary: Some("Create user"),
+///     description: Some("Creates a new user account"),
+/// };
+/// 
+/// // New way (recommended)
+/// let new_docs = HandlerDocumentation {
+///     summary: Some("Create user"),
+///     description: Some("Creates a new user account"),
+///     parameters: vec![],
+///     request_body: None,
+///     request_body_type: None,
+///     response_type: None,
+///     responses: vec![],
+/// };
+/// ```
 #[derive(Debug, Clone)]
 pub struct HandlerMetadata {
+    /// Brief one-line summary of what the handler does
     pub summary: Option<&'static str>,
+    /// Longer description providing more details about the handler
     pub description: Option<&'static str>,
 }
 
+/// Complete information about a registered API route.
+/// 
+/// This struct contains all the information about a route that has been registered
+/// with a [`DocumentedRouter`], including the HTTP method, path, and all documentation
+/// metadata. This is used internally to track routes and generate the OpenAPI specification.
+/// 
+/// # Examples
+/// 
+/// ```rust
+/// use stonehm::{RouteInfo, ParameterDoc, RequestBodyDoc, ResponseDoc};
+/// use http::Method;
+/// 
+/// let route = RouteInfo {
+///     path: "/users/{id}".to_string(),
+///     method: Method::GET,
+///     summary: Some("Get user by ID".to_string()),
+///     description: Some("Retrieves user information by their unique identifier".to_string()),
+///     parameters: vec![
+///         ParameterDoc {
+///             name: "id".to_string(),
+///             description: "The user's unique identifier".to_string(),
+///             param_type: "path".to_string(),
+///         }
+///     ],
+///     request_body: None,
+///     responses: vec![
+///         ResponseDoc {
+///             status_code: 200,
+///             description: "User successfully retrieved".to_string(),
+///         },
+///         ResponseDoc {
+///             status_code: 404,
+///             description: "User not found".to_string(),
+///         },
+///     ],
+/// };
+/// ```
+/// 
+/// # Usage
+/// 
+/// You typically don't create `RouteInfo` instances manually. Instead, they are
+/// automatically created when you register routes with a `DocumentedRouter`:
+/// 
+/// ```rust
+/// # use stonehm::{api_router, api_handler, StoneSchema};
+/// # use axum::Json;
+/// # use serde::Serialize;
+/// # #[derive(Serialize, StoneSchema)]
+/// # struct UserData { id: u32 }
+/// # #[derive(Serialize, StoneSchema)]
+/// # struct CreatedUser { id: u32 }
+/// # #[api_handler]
+/// # async fn get_user_handler() -> Json<UserData> { Json(UserData { id: 1 }) }
+/// # #[api_handler]
+/// # async fn create_user_handler() -> Json<CreatedUser> { Json(CreatedUser { id: 1 }) }
+/// let router = api_router!("My API", "1.0.0")
+///     .get("/users/{id}", get_user_handler)  // Creates a RouteInfo internally
+///     .post("/users", create_user_handler);  // Creates another RouteInfo
+/// ```
 #[derive(Debug, Clone)]
 pub struct RouteInfo {
+    /// The route path pattern (e.g., "/users/{id}")
     pub path: String,
+    /// The HTTP method for this route
     pub method: Method,
+    /// Brief one-line summary of what this route does
     pub summary: Option<String>,
+    /// Longer description providing more details about the route
     pub description: Option<String>,
+    /// List of parameters this route accepts (path, query, header)
     pub parameters: Vec<ParameterDoc>,
+    /// Information about the expected request body, if any
     pub request_body: Option<RequestBodyDoc>,
+    /// List of possible responses this route can return
     pub responses: Vec<ResponseDoc>,
 }
 
-/// Trait for handlers that have documentation metadata
+/// Trait for handlers that provide documentation metadata.
+/// 
+/// This trait allows handler functions to provide documentation metadata
+/// that can be used for OpenAPI generation. It's primarily used for backwards
+/// compatibility with older versions of the API.
+/// 
+/// # Examples
+/// 
+/// ```rust
+/// use stonehm::{DocumentedHandler, HandlerMetadata};
+/// 
+/// struct MyHandler;
+/// 
+/// impl DocumentedHandler for MyHandler {
+///     fn metadata() -> HandlerMetadata {
+///         HandlerMetadata {
+///             summary: Some("Custom handler"),
+///             description: Some("A custom handler with specific documentation"),
+///         }
+///     }
+/// }
+/// ```
+/// 
+/// # Note
+/// 
+/// In most cases, you should use the `#[api_handler]` attribute macro instead
+/// of implementing this trait manually, as it automatically extracts documentation
+/// from function comments and provides more comprehensive metadata.
 pub trait DocumentedHandler {
+    /// Returns the documentation metadata for this handler.
+    /// 
+    /// The default implementation returns empty metadata.
     fn metadata() -> HandlerMetadata {
         HandlerMetadata {
             summary: None,
@@ -103,12 +655,105 @@ pub trait DocumentedHandler {
     }
 }
 
-/// Registry for handler documentation
+/// Registry trait for looking up handler documentation.
+/// 
+/// This trait provides a way to look up documentation metadata for handlers
+/// by their name. It's used internally by the documentation system.
+/// 
+/// # Note
+/// 
+/// This trait is primarily for internal use and backwards compatibility.
+/// Most users should not need to implement this trait directly.
 pub trait HandlerRegistry {
+    /// Look up documentation metadata for a handler by name.
+    /// 
+    /// Returns `Some(HandlerMetadata)` if documentation is found for the
+    /// given handler name, or `None` if no documentation is available.
     fn get_handler_docs(handler_name: &str) -> Option<HandlerMetadata>;
 }
 
-/// A router that automatically captures handler documentation
+/// A router that automatically captures handler documentation and generates OpenAPI specs.
+/// 
+/// `DocumentedRouter` is the main component of the stonehm crate. It wraps an Axum `Router`
+/// and automatically extracts documentation from handler functions to generate OpenAPI 3.0
+/// specifications. It provides the same interface as `axum::Router` while adding automatic
+/// documentation generation capabilities.
+/// 
+/// # Features
+/// 
+/// - **Automatic documentation extraction**: Reads doc comments from handler functions
+/// - **OpenAPI 3.0 generation**: Produces valid OpenAPI specifications
+/// - **Schema generation**: Automatically includes JSON schemas for request/response types
+/// - **Multiple output formats**: Supports both JSON and YAML output
+/// - **Drop-in replacement**: Can replace `axum::Router` with minimal code changes
+/// 
+/// # Examples
+/// 
+/// ## Basic Usage
+/// 
+/// ```rust,no_run
+/// use stonehm::{DocumentedRouter, api_handler, StoneSchema};
+/// use axum::Json;
+/// use serde::Serialize;
+/// 
+/// #[derive(Serialize, StoneSchema)]
+/// struct HelloResponse {
+///     message: String,
+/// }
+/// 
+/// /// Returns a hello world message
+/// #[api_handler]
+/// async fn hello() -> Json<HelloResponse> {
+///     Json(HelloResponse {
+///         message: "Hello, World!".to_string(),
+///     })
+/// }
+/// 
+/// let router = DocumentedRouter::new("My API", "1.0.0")
+///     .get("/", hello)
+///     .with_openapi_routes();
+/// ```
+/// 
+/// ## Using the Convenience Macro
+/// 
+/// ```rust,no_run
+/// # use stonehm::{api_router, api_handler, StoneSchema};
+/// # use axum::Json;
+/// # use serde::Serialize;
+/// # #[derive(Serialize, StoneSchema)]
+/// # struct HelloResponse { msg: String }
+/// # #[derive(Serialize, StoneSchema)]
+/// # struct UserResponse { msg: String }
+/// # #[api_handler]
+/// # async fn hello() -> Json<HelloResponse> { Json(HelloResponse { msg: "hi".into() }) }
+/// # #[api_handler]
+/// # async fn create_user() -> Json<UserResponse> { Json(UserResponse { msg: "created".into() }) }
+/// let router = api_router!("My API", "1.0.0")
+///     .get("/", hello)
+///     .post("/users", create_user)
+///     .with_openapi_routes();
+/// ```
+/// 
+/// ## Accessing the OpenAPI Specification
+/// 
+/// ```rust,no_run
+/// # use stonehm::{api_router, api_handler, StoneSchema};
+/// # use axum::Json;
+/// # use serde::Serialize;
+/// # #[derive(Serialize, StoneSchema)]
+/// # struct Response { msg: String }
+/// # #[api_handler]
+/// # async fn hello() -> Json<Response> { Json(Response { msg: "hi".into() }) }
+/// let router = api_router!("My API", "1.0.0")
+///     .get("/", hello);
+/// 
+/// // Get the OpenAPI spec as a struct
+/// let spec = router.openapi_spec();
+/// println!("{}", serde_json::to_string_pretty(&spec).unwrap());
+/// 
+/// // Convert to regular Axum router
+/// let axum_router = router.into_router();
+/// ```
 pub struct DocumentedRouter {
     inner: Router,
     routes: Arc<Mutex<Vec<RouteInfo>>>,
@@ -117,12 +762,31 @@ pub struct DocumentedRouter {
 }
 
 impl DocumentedRouter {
+    /// Creates a new `DocumentedRouter` with the given API title and version.
+    /// 
+    /// This initializes a new router with an empty OpenAPI 3.0.3 specification
+    /// that will be populated as routes are added.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `title` - The title of your API (e.g., "My REST API")
+    /// * `version` - The version of your API (e.g., "1.0.0", "v2.1")
+    /// 
+    /// # Examples
+    /// 
+    /// ```rust
+    /// use stonehm::DocumentedRouter;
+    /// 
+    /// let router = DocumentedRouter::new("User Management API", "1.2.0");
+    /// ```
     pub fn new(title: impl Into<String>, version: impl Into<String>) -> Self {
-        let mut spec = OpenAPI::default();
-        spec.openapi = "3.0.3".to_string();
-        spec.info = Info {
-            title: title.into(),
-            version: version.into(),
+        let spec = OpenAPI {
+            openapi: "3.0.3".to_string(),
+            info: Info {
+                title: title.into(),
+                version: version.into(),
+                ..Default::default()
+            },
             ..Default::default()
         };
 
@@ -137,7 +801,16 @@ impl DocumentedRouter {
     /// Route with automatic documentation lookup
     pub fn route<F>(self, path: &str, method_router: MethodRouter) -> Self {
         // For now, register without docs - we'll enhance this
-        self.register_route(path, Method::GET, None, None, vec![], None, vec![]); // Default to GET, would need smarter detection
+        let empty_docs = HandlerDocumentation {
+            summary: None,
+            description: None,
+            parameters: vec![],
+            request_body: None,
+            request_body_type: None,
+            response_type: None,
+            responses: vec![],
+        };
+        self.register_route(path, Method::GET, empty_docs); // Default to GET, would need smarter detection
         
         Self {
             inner: self.inner.route(path, method_router),
@@ -157,15 +830,7 @@ impl DocumentedRouter {
         let handler_name = std::any::type_name::<H>();
         let docs = self.lookup_handler_docs(handler_name);
         
-        self.register_route(
-            path, 
-            Method::GET, 
-            docs.summary, 
-            docs.description, 
-            docs.parameters,
-            docs.request_body,
-            docs.responses
-        );
+        self.register_route(path, Method::GET, docs);
         
         Self {
             inner: self.inner.route(path, get(handler)),
@@ -184,15 +849,7 @@ impl DocumentedRouter {
         let handler_name = std::any::type_name::<H>();
         let docs = self.lookup_handler_docs(handler_name);
         
-        self.register_route(
-            path, 
-            Method::POST, 
-            docs.summary, 
-            docs.description, 
-            docs.parameters,
-            docs.request_body,
-            docs.responses
-        );
+        self.register_route(path, Method::POST, docs);
         
         Self {
             inner: self.inner.route(path, post(handler)),
@@ -211,15 +868,7 @@ impl DocumentedRouter {
         let handler_name = std::any::type_name::<H>();
         let docs = self.lookup_handler_docs(handler_name);
         
-        self.register_route(
-            path, 
-            Method::PUT, 
-            docs.summary, 
-            docs.description, 
-            docs.parameters,
-            docs.request_body,
-            docs.responses
-        );
+        self.register_route(path, Method::PUT, docs);
         
         Self {
             inner: self.inner.route(path, put(handler)),
@@ -238,15 +887,7 @@ impl DocumentedRouter {
         let handler_name = std::any::type_name::<H>();
         let docs = self.lookup_handler_docs(handler_name);
         
-        self.register_route(
-            path, 
-            Method::DELETE, 
-            docs.summary, 
-            docs.description, 
-            docs.parameters,
-            docs.request_body,
-            docs.responses
-        );
+        self.register_route(path, Method::DELETE, docs);
         
         Self {
             inner: self.inner.route(path, delete(handler)),
@@ -265,15 +906,7 @@ impl DocumentedRouter {
         let handler_name = std::any::type_name::<H>();
         let docs = self.lookup_handler_docs(handler_name);
         
-        self.register_route(
-            path, 
-            Method::PATCH, 
-            docs.summary, 
-            docs.description, 
-            docs.parameters,
-            docs.request_body,
-            docs.responses
-        );
+        self.register_route(path, Method::PATCH, docs);
         
         Self {
             inner: self.inner.route(path, patch(handler)),
@@ -424,12 +1057,13 @@ impl DocumentedRouter {
         &self, 
         path: &str, 
         method: Method, 
-        summary: Option<&str>, 
-        description: Option<&str>,
-        parameters: Vec<ParameterDoc>,
-        request_body: Option<RequestBodyDoc>,
-        responses: Vec<ResponseDoc>
+        docs: HandlerDocumentation
     ) {
+        let summary = docs.summary;
+        let description = docs.description;
+        let parameters = docs.parameters;
+        let request_body = docs.request_body;
+        let responses = docs.responses;
         let mut routes = self.routes.lock().unwrap();
         routes.push(RouteInfo {
             path: path.to_string(),
@@ -513,12 +1147,76 @@ impl DocumentedRouter {
         }
     }
 
-    /// Add routes to serve the OpenAPI spec with default prefix
+    /// Add routes to serve the OpenAPI specification with default endpoints.
+    /// 
+    /// This convenience method adds two routes to serve the OpenAPI specification:
+    /// - `GET /openapi.json` - Returns the spec in JSON format
+    /// - `GET /openapi.yaml` - Returns the spec in YAML format
+    /// 
+    /// # Examples
+    /// 
+    /// ```rust,no_run
+    /// # use stonehm::{api_router, api_handler, StoneSchema};
+    /// # use axum::Json;
+    /// # use serde::Serialize;
+    /// # #[derive(Serialize, StoneSchema)]
+    /// # struct User { id: u32 }
+    /// # #[derive(Serialize, StoneSchema)]
+    /// # struct UsersResponse { users: Vec<User> }
+    /// # #[api_handler]
+    /// # async fn get_users() -> Json<UsersResponse> { Json(UsersResponse { users: vec![] }) }
+    /// let app = api_router!("My API", "1.0.0")
+    ///     .get("/users", get_users)
+    ///     .with_openapi_routes()  // Adds /openapi.json and /openapi.yaml
+    ///     .into_router();
+    /// ```
+    /// 
+    /// After adding these routes, you can access your API specification at:
+    /// - `http://your-server/openapi.json`
+    /// - `http://your-server/openapi.yaml`
     pub fn with_openapi_routes(self) -> Self {
         self.with_openapi_routes_prefix("/openapi")
     }
 
-    /// Add routes to serve the OpenAPI spec with custom prefix
+    /// Add routes to serve the OpenAPI specification with a custom path prefix.
+    /// 
+    /// This method allows you to customize where the OpenAPI specification endpoints
+    /// are served. It adds two routes with your custom prefix:
+    /// - `GET {prefix}.json` - Returns the spec in JSON format  
+    /// - `GET {prefix}.yaml` - Returns the spec in YAML format
+    /// 
+    /// # Arguments
+    /// 
+    /// * `prefix` - The path prefix for the OpenAPI routes (e.g., "/api/docs", "/spec")
+    /// 
+    /// # Examples
+    /// 
+    /// ```rust,no_run
+    /// # use stonehm::{api_router, api_handler, StoneSchema};
+    /// # use axum::Json;
+    /// # use serde::Serialize;
+    /// # #[derive(Serialize, StoneSchema)]
+    /// # struct User { id: u32 }
+    /// # #[derive(Serialize, StoneSchema)]
+    /// # struct UsersResponse { users: Vec<User> }
+    /// # #[api_handler]
+    /// # async fn get_users() -> Json<UsersResponse> { Json(UsersResponse { users: vec![] }) }
+    /// let app = api_router!("My API", "1.0.0")
+    ///     .get("/users", get_users)
+    ///     .with_openapi_routes_prefix("/api/docs")  // Adds /api/docs.json and /api/docs.yaml
+    ///     .into_router();
+    /// ```
+    /// 
+    /// With the prefix "/api/docs", you can access:
+    /// - `http://your-server/api/docs.json`
+    /// - `http://your-server/api/docs.yaml`
+    /// 
+    /// # Path Normalization
+    /// 
+    /// The prefix is automatically normalized:
+    /// - Leading slashes are added if missing
+    /// - Trailing slashes are removed
+    /// - Empty prefixes are handled gracefully
     pub fn with_openapi_routes_prefix(self, prefix: &str) -> Self {
         let spec = self.spec.clone();
         let spec_json = spec.clone();
@@ -533,8 +1231,8 @@ impl DocumentedRouter {
             format!("/{}", prefix.trim_end_matches('/'))
         };
 
-        let json_path = format!("{}.json", normalized_prefix);
-        let yaml_path = format!("{}.yaml", normalized_prefix);
+        let json_path = format!("{normalized_prefix}.json");
+        let yaml_path = format!("{normalized_prefix}.yaml");
 
         let inner = self.inner
             .route(&json_path, get(move || async move {
@@ -554,12 +1252,75 @@ impl DocumentedRouter {
         }
     }
 
-    /// Convert into a regular axum Router
+    /// Convert the `DocumentedRouter` into a regular Axum `Router`.
+    /// 
+    /// This consumes the `DocumentedRouter` and returns the underlying Axum `Router`
+    /// that can be used with Axum's server functions. All documentation information
+    /// is discarded after this conversion.
+    /// 
+    /// # Examples
+    /// 
+    /// ```rust
+    /// # use stonehm::{api_router, api_handler, StoneSchema};
+    /// # use axum::Json;
+    /// # use serde::Serialize;
+    /// # #[derive(Serialize, StoneSchema)]
+    /// # struct User { id: u32 }
+    /// # #[derive(Serialize, StoneSchema)]
+    /// # struct UsersResponse { users: Vec<User> }
+    /// # #[api_handler]
+    /// # async fn get_users() -> Json<UsersResponse> { Json(UsersResponse { users: vec![] }) }
+    /// let documented_router = api_router!("My API", "1.0.0")
+    ///     .get("/users", get_users)
+    ///     .with_openapi_routes();
+    /// 
+    /// // Convert to Axum router for serving
+    /// let axum_router = documented_router.into_router();
+    /// 
+    /// // Use with Axum's serve function
+    /// // axum::serve(listener, axum_router).await.unwrap();
+    /// ```
     pub fn into_router(self) -> Router {
         self.inner
     }
 
-    /// Get the current OpenAPI spec
+    /// Get a copy of the current OpenAPI specification.
+    /// 
+    /// Returns the generated OpenAPI 3.0 specification as an `OpenAPI` struct
+    /// that can be serialized to JSON or YAML. This is useful for inspecting
+    /// the generated documentation or saving it to a file.
+    /// 
+    /// # Examples
+    /// 
+    /// ```rust
+    /// # use stonehm::{api_router, api_handler, StoneSchema};
+    /// # use axum::Json;
+    /// # use serde::{Serialize, Deserialize};
+    /// # #[derive(Serialize, StoneSchema)]
+    /// # struct User { id: u32 }
+    /// # #[derive(Serialize, StoneSchema)]
+    /// # struct UsersResponse { users: Vec<User> }
+    /// # #[derive(Deserialize, StoneSchema)]
+    /// # struct CreateUserRequest { name: String }
+    /// # #[api_handler]
+    /// # async fn get_users() -> Json<UsersResponse> { Json(UsersResponse { users: vec![] }) }
+    /// # #[api_handler]
+    /// # async fn create_user(Json(_req): Json<CreateUserRequest>) -> Json<User> { Json(User { id: 1 }) }
+    /// let router = api_router!("My API", "1.0.0")
+    ///     .get("/users", get_users)
+    ///     .post("/users", create_user);
+    /// 
+    /// // Get the OpenAPI specification
+    /// let spec = router.openapi_spec();
+    /// 
+    /// // Serialize to JSON
+    /// let json = serde_json::to_string_pretty(&spec).unwrap();
+    /// println!("{}", json);
+    /// 
+    /// // Serialize to YAML  
+    /// let yaml = serde_yaml::to_string(&spec).unwrap();
+    /// println!("{}", yaml);
+    /// ```
     pub fn openapi_spec(&self) -> OpenAPI {
         self.spec.lock().unwrap().clone()
     }
@@ -710,7 +1471,7 @@ fn create_operation_with_params_and_responses(
         let schema = if let Some(ref schema_type) = body_doc.schema_type {
             // Create a reference to the schema
             ReferenceOr::Reference {
-                reference: format!("#/components/schemas/{}", schema_type),
+                reference: format!("#/components/schemas/{schema_type}"),
             }
         } else {
             // Fallback to generic object
@@ -744,8 +1505,10 @@ fn create_operation_with_params_and_responses(
     
     if response_docs.is_empty() {
         // Add default response if none specified
-        let mut success_response = ApiResponse::default();
-        success_response.description = "Successful response".to_string();
+        let success_response = ApiResponse {
+            description: "Successful response".to_string(),
+            ..Default::default()
+        };
         responses.responses.insert(
             StatusCode::Code(200),
             ReferenceOr::Item(success_response)
@@ -753,8 +1516,10 @@ fn create_operation_with_params_and_responses(
     } else {
         // Add documented responses
         for response_doc in response_docs {
-            let mut response = ApiResponse::default();
-            response.description = response_doc.description.clone();
+            let response = ApiResponse {
+                description: response_doc.description.clone(),
+                ..Default::default()
+            };
             
             responses.responses.insert(
                 StatusCode::Code(response_doc.status_code),
@@ -780,7 +1545,64 @@ fn create_operation_with_responses(
     create_operation_with_params_and_responses(path, method, summary, description, &[], &None, response_docs)
 }
 
-/// Macro for creating a DocumentedRouter
+/// Convenience macro for creating a new `DocumentedRouter`.
+/// 
+/// This macro provides a shorthand way to create a new `DocumentedRouter`
+/// with the given title and version. It's equivalent to calling
+/// `DocumentedRouter::new(title, version)` but with a more concise syntax.
+/// 
+/// # Arguments
+/// 
+/// * `$title` - The title of your API as a string literal or expression
+/// * `$version` - The version of your API as a string literal or expression
+/// 
+/// # Examples
+/// 
+/// ```rust
+/// # use stonehm::{api_router, api_handler, StoneSchema};
+/// # use axum::Json;
+/// # use serde::{Serialize, Deserialize};
+/// # #[derive(Serialize, StoneSchema)]
+/// # struct UserInfo { id: u32 }
+/// # #[derive(Serialize, StoneSchema)]
+/// # struct UsersResponse { users: Vec<UserInfo> }
+/// # #[derive(Deserialize, StoneSchema)]
+/// # struct CreateUserRequest { name: String }
+/// # #[derive(Serialize, StoneSchema)]
+/// # struct NewUser { id: u32 }
+/// # #[derive(Serialize, StoneSchema)]
+/// # struct SingleUser { id: u32 }
+/// # #[api_handler]
+/// # async fn get_users() -> Json<UsersResponse> { Json(UsersResponse { users: vec![] }) }
+/// # #[api_handler]
+/// # async fn create_user(Json(_req): Json<CreateUserRequest>) -> Json<NewUser> { Json(NewUser { id: 1 }) }
+/// # #[api_handler]
+/// # async fn get_user() -> Json<SingleUser> { Json(SingleUser { id: 1 }) }
+/// // Basic usage with string literals
+/// let router = api_router!("My API", "1.0.0");
+/// 
+/// // Using variables
+/// let api_title = "User Management API";
+/// let api_version = "2.1.0";
+/// let router = api_router!(api_title, api_version);
+/// 
+/// // Chaining with route definitions
+/// let app = api_router!("My API", "1.0.0")
+///     .get("/users", get_users)
+///     .post("/users", create_user)
+///     .get("/users/{id}", get_user)
+///     .with_openapi_routes()
+///     .into_router();
+/// ```
+/// 
+/// # Equivalent Code
+/// 
+/// This macro expands to:
+/// ```rust
+/// use stonehm::DocumentedRouter;
+/// 
+/// let router = DocumentedRouter::new("My API", "1.0.0");
+/// ```
 #[macro_export]
 macro_rules! api_router {
     ($title:expr, $version:expr) => {

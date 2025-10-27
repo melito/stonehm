@@ -3,19 +3,19 @@ use axum::{
     Json,
 };
 use serde::{Deserialize, Serialize};
-use stonehm::{api_router, api_handler, SimpleSchema};
+use stonehm::{api_router, api_handler, StoneSchema};
 
-#[derive(Serialize, SimpleSchema)]
+#[derive(Serialize, StoneSchema)]
 struct HelloResponse {
     message: String,
 }
 
-#[derive(Deserialize, SimpleSchema)]
+#[derive(Deserialize, StoneSchema)]
 struct GreetRequest {
     name: String,
 }
 
-#[derive(Serialize, SimpleSchema)]
+#[derive(Serialize, StoneSchema)]
 struct GreetResponse {
     greeting: String,
 }
@@ -25,7 +25,7 @@ struct UserId {
     id: u32,
 }
 
-#[derive(Serialize, SimpleSchema)]
+#[derive(Serialize, StoneSchema)]
 struct UserResponse {
     id: u32,
     name: String,
@@ -82,8 +82,8 @@ async fn greet(Json(payload): Json<GreetRequest>) -> Json<GreetResponse> {
 async fn get_user(Path(UserId { id }): Path<UserId>) -> Json<UserResponse> {
     Json(UserResponse {
         id,
-        name: format!("User {}", id),
-        email: format!("user{}@example.com", id),
+        name: format!("User {id}"),
+        email: format!("user{id}@example.com"),
     })
 }
 
@@ -144,14 +144,14 @@ async fn run_server(app: axum::Router, openapi_urls: Vec<&str>) {
     println!("Server running on http://127.0.0.1:3000");
     println!("OpenAPI spec available at:");
     for url in openapi_urls {
-        println!("{}", url);
+        println!("{url}");
     }
-    println!("");
+    println!();
     println!("Available endpoints:");
     println!("  - GET /");
     println!("  - POST /greet");
     println!("  - GET /users/:id");
-    println!("");
+    println!();
     println!("Usage:");
     println!("  cargo run                 # Uses custom prefix /api/docs");
     println!("  cargo run -- --default    # Uses default prefix /openapi");

@@ -447,6 +447,15 @@ cargo test
 # Run the example
 cd examples/hello_world
 cargo run
+
+# Or run from the root directory
+cargo run -p hello_world
+
+# Test OpenAPI generation
+cargo run -p hello_world -- --test-schema
+
+# Use custom OpenAPI prefix
+cargo run -p hello_world -- --default
 #+END_SRC
 
 * License
