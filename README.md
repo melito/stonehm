@@ -1,18 +1,16 @@
-# Stonehm - Documentation-Driven OpenAPI Generation for Axum
+# stonehm - Documentation-Driven OpenAPI Generation for Axum
 
-Stonehm automatically generates comprehensive OpenAPI 3.0 specifications for Axum web applications by analyzing handler functions and their documentation. The core principle is **"documentation is the spec"** - write clear, natural documentation and get complete OpenAPI specs automatically.
+stonehm automatically generates comprehensive OpenAPI 3.0 specifications for Axum web applications by analyzing handler functions and their documentation. The core principle is **"documentation is the spec"** - write clear, natural documentation and get complete OpenAPI specs automatically.
 
-## 🌟 Key Features
+## Key Features
 
-- 🚀 **Zero-friction integration** - Drop-in replacement for `axum::Router`
-- 📝 **Documentation-driven** - Extract API docs from standard rustdoc comments
-- 🔄 **Automatic error handling** - Detect errors from `Result<T, E>` return types
-- 📋 **Multiple response formats** - Support simple and elaborate response documentation
-- 🛠️ **Type-safe schema generation** - Automatic request/response schemas via derive macros
-- ⚡ **Compile-time processing** - Zero runtime overhead for documentation generation
-- 🎯 **Best practices built-in** - Encourages good API documentation habits
+- Generate OpenAPI 3.0 specs from rustdoc comments
+- Automatic error handling from `Result<T, E>` return types  
+- Type-safe schema generation via derive macros
+- Compile-time processing with zero runtime overhead
+- Drop-in replacement for `axum::Router`
 
-## 🚨 What Makes Stonehm Different
+## What Makes stonehm Different
 
 **Traditional approach**: Write code, then write separate OpenAPI specs
 ```yaml
@@ -38,7 +36,7 @@ paths:
           description: User not found
 ```
 
-**Stonehm approach**: Write natural documentation, get OpenAPI automatically
+**stonehm approach**: Write natural documentation, get OpenAPI automatically
 ```rust
 /// Get user by ID
 ///
@@ -46,14 +44,14 @@ paths:
 #[api_handler]
 async fn get_user(Path(id): Path<u32>) -> Result<Json<User>, ApiError> {
     // Implementation automatically generates:
-    // ✅ Path parameter documentation  
-    // ✅ Success response with User schema
-    // ✅ Error responses with ApiError schema
-    // ✅ Complete OpenAPI 3.0 specification
+    // - Path parameter documentation  
+    // - Success response with User schema
+    // - Error responses with ApiError schema
+    // - Complete OpenAPI 3.0 specification
 }
 ```
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Installation
 
@@ -101,10 +99,10 @@ enum ApiError {
 #[api_handler]
 async fn get_user(Path(id): Path<u32>) -> Result<Json<User>, ApiError> {
     // Automatic OpenAPI generation includes:
-    // ✅ Path parameter documentation
-    // ✅ 200 response with User schema
-    // ✅ 400 Bad Request with ApiError schema
-    // ✅ 500 Internal Server Error with ApiError schema
+    // - Path parameter documentation
+    // - 200 response with User schema
+    // - 400 Bad Request with ApiError schema
+    // - 500 Internal Server Error with ApiError schema
     
     Ok(Json(User {
         id,
@@ -130,13 +128,13 @@ async fn main() {
 
 **That's it!** You now have a fully documented API with automatic OpenAPI generation.
 
-## 📖 Documentation Approaches
+## Documentation Approaches
 
-Stonehm supports three documentation approaches to fit different needs:
+stonehm supports three documentation approaches to fit different needs:
 
-### 1. 🌟 Automatic Documentation (Recommended)
+### 1. Automatic Documentation (Recommended)
 
-Let Stonehm infer everything from your code structure:
+Let stonehm infer everything from your code structure:
 
 ```rust
 /// Get user profile
@@ -145,14 +143,14 @@ Let Stonehm infer everything from your code structure:
 #[api_handler]
 async fn get_profile() -> Result<Json<User>, ApiError> {
     // Automatically generates:
-    // ✅ 200 response with User schema
-    // ✅ 400 Bad Request with ApiError schema
-    // ✅ 500 Internal Server Error with ApiError schema
+    // - 200 response with User schema
+    // - 400 Bad Request with ApiError schema
+    // - 500 Internal Server Error with ApiError schema
     Ok(Json(User::default()))
 }
 ```
 
-### 2. 📝 Structured Documentation
+### 2. Structured Documentation
 
 Add detailed parameter and response documentation:
 
@@ -186,7 +184,7 @@ async fn update_profile(
 }
 ```
 
-### 3. 🔧 Elaborate Documentation
+### 3. Elaborate Documentation
 
 For complex APIs requiring detailed error schemas:
 
@@ -222,9 +220,9 @@ async fn delete_user(Path(id): Path<u32>) -> Result<(), ApiError> {
 }
 ```
 
-## 🔧 Schema Generation
+## Schema Generation
 
-Stonehm uses the `StoneSchema` derive macro for automatic schema generation:
+stonehm uses the `StoneSchema` derive macro for automatic schema generation:
 
 ```rust
 use serde::{Serialize, Deserialize};
@@ -269,7 +267,7 @@ enum ApiError {
 
 **Supported types**: All primitive types, `Option<T>`, `Vec<T>`, nested structs, and enums.
 
-## 🚀 Router Setup
+## Router Setup
 
 ### Basic Setup
 
@@ -304,7 +302,7 @@ async fn main() {
 .with_openapi_routes_prefix("/v1/spec")   // Creates /v1/spec.json and /v1/spec.yaml
 ```
 
-## 📚 Documentation Format Reference
+## Documentation Format Reference
 
 ### Summary and Description
 
@@ -360,20 +358,20 @@ async fn main() {
 ///       schema: ConflictError
 ```
 
-## 🎯 Best Practices
+## Best Practices
 
 ### 1. Use Result Types for Error Handling
 
 Return `Result<Json<T>, E>` to get automatic error responses:
 
 ```rust
-/// ✅ Recommended - Automatic error handling
+/// Recommended - Automatic error handling
 #[api_handler]
 async fn get_user() -> Result<Json<User>, ApiError> {
     Ok(Json(User { id: 1, name: "John".to_string() }))
 }
 
-/// ❌ Manual - Requires explicit response documentation
+/// Manual - Requires explicit response documentation
 #[api_handler]  
 async fn get_user_manual() -> Json<User> {
     Json(User { id: 1, name: "John".to_string() })
@@ -407,10 +405,10 @@ eliminating boilerplate and reducing errors.
 Focus on business logic, not OpenAPI details:
 
 ```text
-/// ✅ Good - describes what the endpoint does
+/// Good - describes what the endpoint does
 /// Creates a new user account with email verification
 
-/// ❌ Avoid - implementation details
+/// Avoid - implementation details
 /// Returns HTTP 201 with application/json content-type
 ```
 
@@ -431,7 +429,7 @@ Focus on business logic, not OpenAPI details:
 ///       schema: ValidationError
 ```
 
-## 🔍 Automatic vs Manual Response Documentation
+## Automatic vs Manual Response Documentation
 
 | Return Type | Automatic Behavior | When to Use Manual |
 |-------------|--------------------|--------------------|
@@ -440,7 +438,7 @@ Focus on business logic, not OpenAPI details:
 | `()` or `StatusCode` | 200 empty response | DELETE operations |
 | Custom types | Depends on implementation | Advanced use cases |
 
-## 🚨 Common Troubleshooting
+## Common Troubleshooting
 
 **Q: My error responses aren't appearing**  
 A: Ensure your function returns `Result<Json<T>, E>` and `E` implements `IntoResponse`.
@@ -454,7 +452,7 @@ A: Add them to the `# Parameters` section with `(path)` type specification.
 **Q: Custom response schemas not working**  
 A: Use the elaborate response format with explicit schema references.
 
-## 📖 API Reference
+## API Reference
 
 ### Macros
 
@@ -493,7 +491,7 @@ let app = api_router!("API", "1.0.0")
 | `()` | 204 No Content | None |
 | `StatusCode` | Custom status | None |
 
-## 🎓 Examples
+## Examples
 
 ### Full REST API Example
 
@@ -588,13 +586,13 @@ async fn main() {
         .into_router();
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:3000").await.unwrap();
-    println!("🚀 Server running on http://127.0.0.1:3000");
-    println!("📖 OpenAPI spec: http://127.0.0.1:3000/openapi.json");
+    println!("Server running on http://127.0.0.1:3000");
+    println!("OpenAPI spec: http://127.0.0.1:3000/openapi.json");
     axum::serve(listener, app).await.unwrap();
 }
 ```
 
-## 🛠️ Development
+## Development
 
 ### Running Examples
 
@@ -626,7 +624,7 @@ cargo run -p hello_world -- --test-schema | jq '.paths."/users".post'
 cargo run -p hello_world -- --test-schema | jq '.components.schemas'
 ```
 
-## 📝 Contributing
+## Contributing
 
 We welcome contributions! Please feel free to submit issues and pull requests.
 
@@ -646,16 +644,10 @@ cargo clippy -- -D warnings
 cargo test --workspace
 ```
 
-## 📄 License
+## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ---
 
-<div align="center">
-
 **[Documentation](https://docs.rs/stonehm) | [Crates.io](https://crates.io/crates/stonehm) | [Repository](https://github.com/melito/stonehm)**
-
-Made with ❤️ for the Rust community
-
-</div>

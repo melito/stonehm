@@ -1,6 +1,6 @@
-//! # Stonehm - Documentation-Driven OpenAPI 3.0 Generation for Axum
+//! # stonehm - Documentation-Driven OpenAPI 3.0 Generation for Axum
 //!
-//! Stonehm automatically generates comprehensive OpenAPI 3.0 specifications for Axum web applications
+//! stonehm automatically generates comprehensive OpenAPI 3.0 specifications for Axum web applications
 //! by analyzing handler functions and their documentation. The core principle is **"documentation is the spec"** -
 //! write clear, natural documentation and get complete OpenAPI specs automatically.
 //!
@@ -28,11 +28,11 @@
 //!
 //! ## Documentation Formats
 //!
-//! Stonehm supports multiple documentation approaches to fit different needs:
+//! stonehm supports multiple documentation approaches to fit different needs:
 //!
 //! ### 1. Simple Documentation (Recommended)
 //!
-//! Write natural documentation and let Stonehm handle the rest:
+//! Write natural documentation and let stonehm handle the rest:
 //!
 //! ```rust,no_run
 //! use axum::Json;
@@ -269,7 +269,7 @@
 //!
 //! ## Documentation Format Reference
 //!
-//! Stonehm extracts documentation from standard Rust doc comments using these sections:
+//! stonehm extracts documentation from standard Rust doc comments using these sections:
 //!
 //! ### Summary and Description
 //!
@@ -641,11 +641,11 @@ pub use stonehm_macros::api_handler;
 pub use serde;
 pub use serde_json;
 
-/// Trait for types that can generate their own JSON schema using Stonehm's schema system.
+/// Trait for types that can generate their own JSON schema using stonehm's schema system.
 /// 
 /// This trait allows types to provide their own JSON schema representation
 /// for OpenAPI specification generation. It's typically implemented automatically
-/// via the `#[derive(StoneSchema)]` macro, which is part of the Stonehm ecosystem.
+/// via the `#[derive(StoneSchema)]` macro, which is part of the stonehm ecosystem.
 /// 
 /// The generated schema follows a simplified subset of JSON Schema that is
 /// compatible with OpenAPI 3.0 specifications.
@@ -721,11 +721,11 @@ pub trait StoneSchema {
     fn schema() -> serde_json::Value;
 }
 
-/// Schema generation macro using Stonehm's schema system.
+/// Schema generation macro using stonehm's schema system.
 /// 
 /// This macro provides a convenient way to generate schemas for types that
 /// implement the `StoneSchema` trait. It's similar to `schemars::schema_for!`
-/// but uses Stonehm's simpler schema system.
+/// but uses stonehm's simpler schema system.
 /// 
 /// # Examples
 /// 
