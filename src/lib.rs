@@ -38,7 +38,7 @@
 //! use axum::Json;
 //! use serde::{Deserialize, Serialize};
 //! use stonehm::{api_router, api_handler};
-//! use stonehm_macros::{StoneSchema, api_error};
+//! use stonehm_macros::api_error;
 //!
 //! #[derive(Serialize, StoneSchema)]
 //! struct User {
@@ -47,7 +47,6 @@
 //!     email: String,
 //! }
 //!
-//! #[derive(Serialize, StoneSchema)]
 //! #[api_error]
 //! enum ApiError {
 //!     /// 404: User not found
@@ -194,7 +193,7 @@
 //!
 //! ```rust
 //! use serde::{Serialize, Deserialize};
-//! use stonehm_macros::{StoneSchema, api_error};
+//! use stonehm_macros::api_error;
 //!
 //! #[derive(Serialize, Deserialize, StoneSchema)]
 //! struct CreateUserRequest {
@@ -350,7 +349,7 @@
 //! use axum::{Json, extract::{Path, Query}};
 //! use serde::{Serialize, Deserialize};
 //! use stonehm::{api_router, api_handler};
-//! use stonehm_macros::{StoneSchema, api_error};
+//! use stonehm_macros::api_error;
 //! 
 //! #[derive(Serialize, Deserialize, StoneSchema)]
 //! struct User {
@@ -370,7 +369,6 @@
 //!     include_posts: Option<bool>,
 //! }
 //!
-//! #[derive(Serialize, StoneSchema)]
 //! #[api_error]
 //! enum ApiError {
 //!     /// 404: User not found

@@ -82,7 +82,6 @@ struct User {
     email: String,
 }
 
-#[derive(Serialize, StoneSchema)]
 #[api_error]
 enum ApiError {
     /// 404: User not found
@@ -245,7 +244,6 @@ struct UserResponse {
     is_active: bool,
 }
 
-#[derive(Serialize, StoneSchema)]
 #[api_error]
 enum ApiError {
     /// 400: Invalid input provided
@@ -381,9 +379,8 @@ async fn get_user_manual() -> Json<User> {
 ### 2. Use api_error Macro for Error Types
 
 ```rust
-use stonehm_macros::{StoneSchema, api_error};
+use stonehm_macros::api_error;
 
-#[derive(Serialize, StoneSchema)]
 #[api_error]
 enum ApiError {
     /// 404: User not found
@@ -397,8 +394,7 @@ enum ApiError {
 }
 ```
 
-The `api_error` macro automatically generates the `IntoResponse` implementation,
-eliminating boilerplate and reducing errors.
+The `api_error` macro automatically generates `IntoResponse`, `Serialize`, and `StoneSchema` implementations, eliminating all boilerplate.
 
 ### 3. Keep Documentation Natural
 
@@ -521,7 +517,6 @@ struct UserQuery {
     limit: Option<u32>,
 }
 
-#[derive(Serialize, StoneSchema)]
 #[api_error]
 enum ApiError {
     /// 404: User not found

@@ -873,10 +873,8 @@ pub fn derive_stone_schema(input: TokenStream) -> TokenStream {
 /// # Basic Usage
 /// 
 /// ```rust
-/// use serde::Serialize;
-/// use stonehm_macros::{StoneSchema, api_error};
+/// use stonehm_macros::api_error;
 /// 
-/// #[derive(Serialize, StoneSchema)]
 /// #[api_error]
 /// enum ApiError {
 ///     /// 404: User not found
@@ -899,11 +897,13 @@ pub fn derive_stone_schema(input: TokenStream) -> TokenStream {
 /// 
 /// # Generated Implementation
 /// 
-/// The macro generates an `IntoResponse` implementation that:
+/// The macro automatically generates:
+/// - `IntoResponse` implementation for HTTP responses
+/// - `Serialize` implementation for JSON serialization  
+/// - `StoneSchema` implementation for OpenAPI documentation
 /// - Maps each variant to its specified status code
-/// - Uses 500 Internal Server Error for variants without `#[status]` attributes
+/// - Uses 500 Internal Server Error for variants without doc comments
 /// - Serializes the error as JSON in the response body
-/// - Sets appropriate content-type headers
 /// 
 /// # Supported Status Codes
 /// 
@@ -925,9 +925,9 @@ pub fn derive_stone_schema(input: TokenStream) -> TokenStream {
 /// ```rust,no_run
 /// # use axum::Json;
 /// # use stonehm::api_handler;
-/// # use stonehm_macros::{StoneSchema, api_error};
+/// # use stonehm_macros::api_error;
 /// # use serde::{Serialize, Deserialize};
-/// # #[derive(Serialize, StoneSchema)] #[api_error] enum ApiError { #[doc = "404: Not found"] NotFound }
+/// # #[api_error] enum ApiError { #[doc = "404: Not found"] NotFound }
 /// # #[derive(Serialize, StoneSchema)] struct User { id: u32 }
 /// 
 /// #[api_handler]
@@ -946,9 +946,8 @@ pub fn derive_stone_schema(input: TokenStream) -> TokenStream {
 /// 
 /// # Requirements
 /// 
-/// - The enum must implement `Serialize` (for JSON serialization)
-/// - Preferably also derive `StoneSchema` for OpenAPI documentation
 /// - Use with `#[api_handler]` functions for automatic documentation
+/// - No additional derives needed - everything is generated automatically
 #[proc_macro_attribute]
 pub fn api_error(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let input = parse_macro_input!(item as DeriveInput);
@@ -1049,6 +1048,38 @@ pub fn api_error(_attr: TokenStream, item: TokenStream) -> TokenStream {
     
     let expanded = quote! {
         #input
+        
+        // Automatically implement Serialize  
+        impl stonehm::serde::Serialize for #name {
+            fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+            where
+                S: stonehm::serde::Serializer,
+            {
+                // Serialize as the error message string that will be returned in responses
+                let message = match self {
+                    #(#match_arms),*
+                }.1; // Get the message part from the (status, message) tuple
+                
+                message.serialize(serializer)
+            }
+        }
+        
+        // Automatically implement StoneSchema
+        impl stonehm::StoneSchema for #name {
+            fn schema() -> stonehm::serde_json::Value {
+                stonehm::serde_json::json!({
+                    "title": stringify!(#name),
+                    "type": "object",
+                    "properties": {
+                        "error": {
+                            "type": "string",
+                            "description": "Error message"
+                        }
+                    },
+                    "required": ["error"]
+                })
+            }
+        }
         
         impl axum::response::IntoResponse for #name {
             fn into_response(self) -> axum::response::Response {

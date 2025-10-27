@@ -5,6 +5,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use stonehm::{api_router, api_handler};
 use stonehm_macros::{StoneSchema, api_error};
+use stonehm::StoneSchema; // Need trait in scope for api_handler macro
 
 #[derive(Serialize, StoneSchema)]
 struct HelloResponse {
@@ -39,7 +40,6 @@ struct ErrorResponse {
     code: u32,
 }
 
-#[derive(Serialize, StoneSchema)]
 #[api_error]
 enum ApiError {
     /// 404: User not found
