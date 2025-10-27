@@ -199,7 +199,10 @@ use openapiv3::{
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 pub use inventory;
-pub use stonehm_macros::{api_handler, StoneSchema};
+pub use stonehm_macros::api_handler;
+
+// Note: The StoneSchema derive macro cannot be re-exported from a proc-macro crate.
+// Users should import it directly: use stonehm_macros::StoneSchema;
 
 // Re-export dependencies so users don't need to add them
 pub use serde;

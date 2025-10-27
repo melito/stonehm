@@ -3,7 +3,8 @@ use axum::{
     Json,
 };
 use serde::{Deserialize, Serialize};
-use stonehm::{api_router, api_handler, StoneSchema};
+use stonehm::{api_router, api_handler};
+use stonehm_macros::StoneSchema;
 
 #[derive(Serialize, StoneSchema)]
 struct HelloResponse {
