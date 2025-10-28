@@ -114,11 +114,8 @@ async fn hello() -> Json<HelloResponse> {
 /// - 400: Invalid request format
 #[api_handler("greeting")]
 async fn greet(Json(request): Json<GreetRequest>) -> Result<Json<GreetResponse>, GreetError> {
-    // Extract name and style from request, with defaults
     let name = request.name.unwrap_or_else(|| "friend".to_string());
     let style = request.style.unwrap_or_else(|| "friendly".to_string());
-    
-    // Generate appropriate greeting based on style
     let message = match style.to_lowercase().as_str() {
         "formal" => format!("Good day, {}! Welcome to our API.", name),
         "casual" => format!("Hey {}! Great to see you!", name),
@@ -139,7 +136,7 @@ async fn greet(Json(request): Json<GreetRequest>) -> Result<Json<GreetResponse>,
 /// Get user information by ID
 ///
 /// Retrieves user information for the specified user ID. 
-/// Returns mock user data including name and email address.
+/// Returns user data including name and email address.
 ///
 /// # Parameters
 /// - id (path): The unique identifier of the user to retrieve
@@ -150,7 +147,6 @@ async fn greet(Json(request): Json<GreetRequest>) -> Result<Json<GreetResponse>,
 /// - 400: Invalid user ID format GetUserError
 #[api_handler("user")]
 async fn get_user(Path(id): Path<u32>) -> Result<Json<UserResponse>, GetUserError> {
-    // Mock user data - in a real app this would query a database
     match id {
         1 => {
             let user = UserResponse {
@@ -169,11 +165,9 @@ async fn get_user(Path(id): Path<u32>) -> Result<Json<UserResponse>, GetUserErro
             Ok(Json(user))
         },
         999 => {
-            // Test invalid ID format (simulate parsing error)
             Err(GetUserError::InvalidUserId { id })
         },
         _ => {
-            // User not found
             Err(GetUserError::UserNotFound { id })
         }
     }
@@ -193,28 +187,23 @@ async fn get_user(Path(id): Path<u32>) -> Result<Json<UserResponse>, GetUserErro
 /// - 403: Insufficient permissions to delete user DeleteUserError
 #[api_handler("user")]
 async fn delete_user(Path(id): Path<u32>) -> Result<StatusCode, DeleteUserError> {
-    // Mock deletion logic - in a real app this would delete from database
     match id {
         1 | 2 => {
             println!("Deleting user with ID: {}", id);
-            // Return 204 No Content for successful deletion
             Ok(StatusCode::NO_CONTENT)
         },
         3 => {
-            // Simulate insufficient permissions
             Err(DeleteUserError::InsufficientPermissions { id })
         },
         _ => {
-            // User not found
             Err(DeleteUserError::UserNotFound { id })
         }
     }
 }
 
-/// Create a new user with automatic error handling
+/// Create a new user account
 ///
-/// Creates a new user account. This demonstrates automatic error response
-/// generation based on the Result return type.
+/// Creates a new user account with validation and error handling.
 ///
 /// # Request Body
 /// Content-Type: application/json
@@ -241,7 +230,6 @@ async fn create_user_with_errors(Json(request): Json<CreateUserRequest>) -> Resu
         });
     }
     
-    // Simulate random outcomes for demonstration
     use std::collections::hash_map::DefaultHasher;
     use std::hash::{Hash, Hasher};
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -253,7 +241,6 @@ async fn create_user_with_errors(Json(request): Json<CreateUserRequest>) -> Resu
     
     match random_outcome {
         0..=79 => {
-            // 80% success - return 201 Created
             let user_response = UserResponse {
                 id: 123,
                 name: request.name,
@@ -262,7 +249,6 @@ async fn create_user_with_errors(Json(request): Json<CreateUserRequest>) -> Resu
             Ok((StatusCode::CREATED, Json(user_response)))
         },
         _ => {
-            // 20% server error - return 500 Internal Server Error
             Err(CreateUserError::ServerError {
                 message: "Database connection failed".to_string()
             })
@@ -273,7 +259,6 @@ async fn create_user_with_errors(Json(request): Json<CreateUserRequest>) -> Resu
 
 #[tokio::main]
 async fn main() {
-    // Test schema generation before starting server
     if std::env::args().any(|arg| arg == "--test-schemas") {
         println!("HelloResponse schema: {}", HelloResponse::schema());
         println!("UserResponse schema: {}", UserResponse::schema());
@@ -281,7 +266,6 @@ async fn main() {
         println!("GreetResponse schema: {}", GreetResponse::schema());
         return;
     }
-    // Test: Print the OpenAPI spec to see if schemas are included
     if std::env::args().any(|arg| arg == "--test-schema") {
         let mut router = api_router!("Hello World API", "1.0.0")
             .description("A comprehensive example API demonstrating stonehm's automatic OpenAPI generation capabilities. This API showcases various endpoint types, request/response schemas, error handling, and documentation features.")
@@ -302,7 +286,6 @@ async fn main() {
         return;
     }
     
-    // Create router with routes - use regular Axum router for now
     let router = axum::Router::new()
         .route("/", axum::routing::get(hello))
         .route("/greet", axum::routing::post(greet)) 
@@ -310,7 +293,6 @@ async fn main() {
         .route("/users/:id", axum::routing::delete(delete_user))
         .route("/users", axum::routing::post(create_user_with_errors));
     
-    // Add basic OpenAPI routes
     let app = router
         .route("/openapi.json", axum::routing::get(|| async { 
             r#"{"openapi":"3.0.0","info":{"title":"Hello World API","version":"1.0.0"},"paths":{}}"#

@@ -56,12 +56,6 @@ enum ApiError {
 /// Returns detailed user data including name and email.
 #[api_handler]
 async fn get_user(Path(id): Path<u32>) -> Result<Json<User>, ApiError> {
-    // Automatic OpenAPI generation includes:
-    // - Path parameter documentation
-    // - 200 response with User schema
-    // - 400 Bad Request with ApiError schema
-    // - 500 Internal Server Error with ApiError schema
-    
     Ok(Json(User {
         id,
         name: format!("User {}", id),
@@ -86,6 +80,12 @@ async fn main() {
 
 **That's it!** You now have a fully documented API with automatic OpenAPI generation.
 
+**Automatic OpenAPI generation includes:**
+- Path parameter documentation
+- 200 response with User schema  
+- 400 Bad Request with ApiError schema
+- 500 Internal Server Error with ApiError schema
+
 ## Documentation Approaches
 
 stonehm supports three documentation approaches to fit different needs:
@@ -100,12 +100,15 @@ Let stonehm infer everything from your code structure:
 /// Retrieves the current user's profile information.
 #[api_handler]
 async fn get_profile() -> Result<Json<User>, ApiError> {
-    // Automatically generates:
-    // - 200 response with User schema
-    // - 400 Bad Request with ApiError schema
-    // - 500 Internal Server Error with ApiError schema
     Ok(Json(User::default()))
 }
+```
+
+**Automatically generates:**
+- 200 response with User schema
+- 400 Bad Request with ApiError schema  
+- 500 Internal Server Error with ApiError schema
+
 ```
 
 ### 2. Structured Documentation
@@ -138,7 +141,7 @@ async fn update_profile(
     Path(id): Path<u32>,
     Json(request): Json<UpdateUserRequest>
 ) -> Result<Json<User>, ApiError> {
-    // Implementation
+    Ok(Json(User::default()))
 }
 ```
 
@@ -174,7 +177,7 @@ For complex APIs requiring detailed error schemas:
 ///       schema: ConflictError
 #[api_handler]
 async fn delete_user(Path(id): Path<u32>) -> Result<(), ApiError> {
-    // Implementation
+    Ok(())
 }
 ```
 
@@ -325,14 +328,48 @@ Return `Result<Json<T>, E>` to get automatic error responses:
 /// Recommended - Automatic error handling
 #[api_handler]
 async fn get_user() -> Result<Json<User>, ApiError> {
-    Ok(Json(User { id: 1, name: "John".to_string() }))
+    Ok(Json(User { id: 1, name: "John".to_string(), email: "john@example.com".to_string() }))
 }
 
 /// Manual - Requires explicit response documentation
 #[api_handler]  
 async fn get_user_manual() -> Json<User> {
-    Json(User { id: 1, name: "John".to_string() })
+    Json(User { id: 1, name: "John".to_string(), email: "john@example.com".to_string() })
 }
+```
+
+**Generated OpenAPI for automatic error handling:**
+```yaml
+responses:
+  '200':
+    description: Success
+    content:
+      application/json:
+        schema:
+          $ref: '#/components/schemas/User'
+  '400':
+    description: Bad Request
+    content:
+      application/json:
+        schema:
+          $ref: '#/components/schemas/ApiError'
+  '500':
+    description: Internal Server Error
+    content:
+      application/json:
+        schema:
+          $ref: '#/components/schemas/ApiError'
+```
+
+**Manual documentation requires explicit responses:**
+```yaml
+responses:
+  '200':
+    description: Success
+    content:
+      application/json:
+        schema:
+          $ref: '#/components/schemas/User'
 ```
 
 ### 2. Use api_error Macro for Error Types
