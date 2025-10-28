@@ -31,10 +31,10 @@ serde = { version = "1.0", features = ["derive"] }
 use axum::{Json, extract::Path};
 use serde::{Serialize, Deserialize};
 use stonehm::{api_router, api_handler};
-use stonehm_macros::{StoneSchema, api_error};
+use stonehm_macros::{StonehmSchema, api_error};
 
 // Define your data types
-#[derive(Serialize, StoneSchema)]
+#[derive(Serialize, StonehmSchema)]
 struct User {
     id: u32,
     name: String,
@@ -180,13 +180,13 @@ async fn delete_user(Path(id): Path<u32>) -> Result<(), ApiError> {
 
 ## Schema Generation
 
-stonehm uses the `StoneSchema` derive macro for automatic schema generation:
+stonehm uses the `StonehmSchema` derive macro for automatic schema generation:
 
 ```rust
 use serde::{Serialize, Deserialize};
-use stonehm_macros::StoneSchema;
+use stonehm_macros::StonehmSchema;
 
-#[derive(Serialize, Deserialize, StoneSchema)]
+#[derive(Serialize, Deserialize, StonehmSchema)]
 struct CreateUserRequest {
     name: String,
     email: String,
@@ -194,7 +194,7 @@ struct CreateUserRequest {
     preferences: UserPreferences,
 }
 
-#[derive(Serialize, StoneSchema)]
+#[derive(Serialize, StonehmSchema)]
 struct UserResponse {
     id: u32,
     name: String,
@@ -353,7 +353,7 @@ enum ApiError {
 }
 ```
 
-The `api_error` macro automatically generates `IntoResponse`, `Serialize`, and `StoneSchema` implementations, eliminating all boilerplate.
+The `api_error` macro automatically generates `IntoResponse`, `Serialize`, and `StonehmSchema` implementations, eliminating all boilerplate.
 
 ### 3. Keep Documentation Natural
 
@@ -399,7 +399,7 @@ Focus on business logic, not OpenAPI details:
 A: Ensure your function returns `Result<Json<T>, E>` and `E` implements `IntoResponse`.
 
 **Q: Schemas aren't in the OpenAPI spec**  
-A: Add `#[derive(StoneSchema)]` to your types and use them in function signatures.
+A: Add `#[derive(StonehmSchema)]` to your types and use them in function signatures.
 
 **Q: Path parameters not documented**  
 A: Add them to the `# Parameters` section with `(path)` type specification.
@@ -415,7 +415,7 @@ A: Use the elaborate response format with explicit schema references.
 |-------|---------|---------|
 | `api_router!(title, version)` | Create documented router | `api_router!("My API", "1.0.0")` |
 | `#[api_handler]` | Mark handler for documentation | `#[api_handler] async fn get_user() {}` |
-| `#[derive(StoneSchema)]` | Generate JSON schema | `#[derive(Serialize, StoneSchema)] struct User {}` |
+| `#[derive(StonehmSchema)]` | Generate JSON schema | `#[derive(Serialize, StonehmSchema)] struct User {}` |
 
 ### Router Methods
 
@@ -454,9 +454,9 @@ let app = api_router!("API", "1.0.0")
 use axum::{Json, extract::{Path, Query}};
 use serde::{Serialize, Deserialize};
 use stonehm::{api_router, api_handler};
-use stonehm_macros::StoneSchema;
+use stonehm_macros::StonehmSchema;
 
-#[derive(Serialize, Deserialize, StoneSchema)]
+#[derive(Serialize, Deserialize, StonehmSchema)]
 struct User {
     id: u32,
     name: String,
@@ -464,7 +464,7 @@ struct User {
     created_at: String,
 }
 
-#[derive(Deserialize, StoneSchema)]
+#[derive(Deserialize, StonehmSchema)]
 struct CreateUserRequest {
     name: String,
     email: String,
