@@ -517,10 +517,16 @@ pub fn api_handler(attr: TokenStream, item: TokenStream) -> TokenStream {
     
     let output = quote! {
         #input
-        
-        // Register handler documentation at compile time
+
+        // Register handler documentation at compile time. `module_path!()`
+        // expands at the macro call site and gives us the fully-qualified
+        // module the handler lives in — combined with `function_name` it
+        // disambiguates same-named handlers in different modules. Without
+        // it, the spec emitter's lookup-by-name silently picks one rustdoc
+        // per name based on link order.
         stonehm::inventory::submit! {
             stonehm::HandlerDocumentation {
+                module_path: module_path!(),
                 function_name: #fn_name_str,
                 summary: #summary,
                 description: #description,

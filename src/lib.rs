@@ -53,13 +53,29 @@ pub struct Components {
 pub struct RouteInfo {
     pub path: String,
     pub method: String,
-    pub function_name: String,
+    /// Fully-qualified handler path captured via
+    /// `std::any::type_name::<H>()`, e.g.
+    /// `"my_app::api::scene::upload_image"`. Used to look up the
+    /// matching `HandlerDocumentation` by joining the inventory
+    /// entry's `module_path` and `function_name` fields. Free-fn
+    /// handlers always produce a stable string here; closures and
+    /// generic-instantiated handlers may not, in which case the
+    /// route still mounts but the OpenAPI doc falls back to a generic
+    /// description.
+    pub function_path: String,
     pub summary: Option<String>,
     pub description: Option<String>,
 }
 
 #[derive(Debug, Clone)]
 pub struct HandlerDocumentation {
+    /// `module_path!()` at the `#[api_handler]` macro call site. Combined
+    /// with `function_name` to disambiguate same-named handlers in
+    /// different modules (e.g. `scene::upload_image` vs.
+    /// `project_metadata::upload_image`). Without this, link order
+    /// silently picks one rustdoc to win — the spec then advertises the
+    /// wrong description for one of the routes.
+    pub module_path: &'static str,
     pub function_name: &'static str,
     pub summary: &'static str,
     pub description: &'static str,
@@ -163,25 +179,30 @@ where
         self
     }
 
+    /// Capture the metadata for a typed handler. Records the full
+    /// `std::any::type_name::<H>()` (e.g.
+    /// `"my_app::api::scene::upload_image"`) so the spec emitter can
+    /// match it against `HandlerDocumentation::module_path` +
+    /// `function_name` from the inventory. The trailing-segment-only
+    /// approach (used in 0.2.0 and earlier) silently collided when two
+    /// modules defined same-named handlers.
+    fn record_route(&mut self, method: &str, path: &str, fn_path: &'static str) {
+        self.routes.push(RouteInfo {
+            path: path.to_string(),
+            method: method.to_string(),
+            function_path: fn_path.to_string(),
+            summary: Some(format!("{method} {path}")),
+            description: None,
+        });
+        self.openapi.paths.insert(path.to_string(), PathItem);
+    }
+
     pub fn get<H, T>(mut self, path: &str, handler: H) -> Self
     where
         H: axum::handler::Handler<T, S>,
         T: 'static,
     {
-        let fn_name = std::any::type_name::<H>()
-            .split("::")
-            .last()
-            .unwrap_or("unknown")
-            .to_string();
-
-        self.routes.push(RouteInfo {
-            path: path.to_string(),
-            method: "GET".to_string(),
-            function_name: fn_name,
-            summary: Some(format!("GET {path}")),
-            description: None,
-        });
-        self.openapi.paths.insert(path.to_string(), PathItem);
+        self.record_route("GET", path, std::any::type_name::<H>());
         self.route(path, get(handler))
     }
 
@@ -190,20 +211,7 @@ where
         H: axum::handler::Handler<T, S>,
         T: 'static,
     {
-        let fn_name = std::any::type_name::<H>()
-            .split("::")
-            .last()
-            .unwrap_or("unknown")
-            .to_string();
-
-        self.routes.push(RouteInfo {
-            path: path.to_string(),
-            method: "POST".to_string(),
-            function_name: fn_name,
-            summary: Some(format!("POST {path}")),
-            description: None,
-        });
-        self.openapi.paths.insert(path.to_string(), PathItem);
+        self.record_route("POST", path, std::any::type_name::<H>());
         self.route(path, post(handler))
     }
 
@@ -212,20 +220,7 @@ where
         H: axum::handler::Handler<T, S>,
         T: 'static,
     {
-        let fn_name = std::any::type_name::<H>()
-            .split("::")
-            .last()
-            .unwrap_or("unknown")
-            .to_string();
-
-        self.routes.push(RouteInfo {
-            path: path.to_string(),
-            method: "PUT".to_string(),
-            function_name: fn_name,
-            summary: Some(format!("PUT {path}")),
-            description: None,
-        });
-        self.openapi.paths.insert(path.to_string(), PathItem);
+        self.record_route("PUT", path, std::any::type_name::<H>());
         self.route(path, put(handler))
     }
 
@@ -234,20 +229,7 @@ where
         H: axum::handler::Handler<T, S>,
         T: 'static,
     {
-        let fn_name = std::any::type_name::<H>()
-            .split("::")
-            .last()
-            .unwrap_or("unknown")
-            .to_string();
-
-        self.routes.push(RouteInfo {
-            path: path.to_string(),
-            method: "DELETE".to_string(),
-            function_name: fn_name,
-            summary: Some(format!("DELETE {path}")),
-            description: None,
-        });
-        self.openapi.paths.insert(path.to_string(), PathItem);
+        self.record_route("DELETE", path, std::any::type_name::<H>());
         self.route(path, delete(handler))
     }
 
@@ -256,20 +238,7 @@ where
         H: axum::handler::Handler<T, S>,
         T: 'static,
     {
-        let fn_name = std::any::type_name::<H>()
-            .split("::")
-            .last()
-            .unwrap_or("unknown")
-            .to_string();
-
-        self.routes.push(RouteInfo {
-            path: path.to_string(),
-            method: "PATCH".to_string(),
-            function_name: fn_name,
-            summary: Some(format!("PATCH {path}")),
-            description: None,
-        });
-        self.openapi.paths.insert(path.to_string(), PathItem);
+        self.record_route("PATCH", path, std::any::type_name::<H>());
         self.route(path, patch(handler))
     }
 
@@ -388,10 +357,15 @@ where
             info.insert("license".into(), Value::Object(l));
         }
 
-        // Collect handler docs once.
-        let handler_docs: HashMap<&str, &HandlerDocumentation> = inventory::iter::<HandlerDocumentation>()
-            .map(|doc| (doc.function_name, doc))
-            .collect();
+        // Collect handler docs once. Key on the **fully-qualified** path
+        // (`{module_path}::{function_name}`) so same-named handlers in
+        // different modules don't collide. The pre-0.2.1 implementation
+        // keyed on bare `function_name`, which silently picked one
+        // rustdoc per name based on link order.
+        let handler_docs: HashMap<String, &HandlerDocumentation> =
+            inventory::iter::<HandlerDocumentation>()
+                .map(|doc| (format!("{}::{}", doc.module_path, doc.function_name), doc))
+                .collect();
 
         // Group routes by OpenAPI path. Multiple methods on the same path get
         // merged into one PathItem object. BTreeMap (not HashMap) so the
@@ -409,7 +383,7 @@ where
         for (openapi_path, routes) in path_methods {
             let mut methods_obj = JsonMap::new();
             for route in &routes {
-                let doc = handler_docs.get(route.function_name.as_str());
+                let doc = handler_docs.get(&route.function_path).copied();
 
                 let (summary, description) = match doc {
                     Some(d) => (d.summary.to_string(), d.description.to_string()),
@@ -1471,6 +1445,60 @@ mod tests {
         assert_eq!(stateless.routes.len(), 1);
         let _final: axum::Router = stateless.into_router();
     }
+
+    #[test]
+    fn same_named_handlers_in_different_modules_dont_collide() {
+        let mut router = api_router!("collision-test", "1.0.0")
+            .post("/api/scene/{id}/upload", scene_fixture::upload_image)
+            .post("/api/projects/{id}/images", project_metadata_fixture::upload_image);
+
+        let v = router.openapi_value();
+        let scene_summary = v["paths"]["/api/scene/{id}/upload"]["post"]["summary"]
+            .as_str()
+            .expect("scene path present");
+        let metadata_summary = v["paths"]["/api/projects/{id}/images"]["post"]["summary"]
+            .as_str()
+            .expect("metadata path present");
+
+        assert_eq!(scene_summary, "Upload an image to the scene");
+        assert_eq!(metadata_summary, "Upload a project display image");
+        // Sanity: the two summaries must differ. Without the fix this
+        // would be the same string twice (the link-order winner).
+        assert_ne!(scene_summary, metadata_summary,
+            "same-named handlers collided — link-order picked one rustdoc");
+    }
+}
+
+// Regression-test fixtures for `same_named_handlers_in_different_modules_dont_collide`.
+// Declared at the crate-root level (not inside the test fn) because
+// `module_path!()` only walks enclosing modules — it doesn't see
+// enclosing functions, while `std::any::type_name` does. Putting the
+// fixtures at module scope keeps the two paths aligned, mirroring how
+// real consumers structure handlers.
+#[cfg(test)]
+mod scene_fixture {
+    use ::axum::Json;
+    /// Upload an image to the scene
+    ///
+    /// Distinct from project_metadata::upload_image — this one creates
+    /// an in-scene image object.
+    #[stonehm_macros::api_handler]
+    pub async fn upload_image() -> Json<&'static str> {
+        Json("scene")
+    }
+}
+
+#[cfg(test)]
+mod project_metadata_fixture {
+    use ::axum::Json;
+    /// Upload a project display image
+    ///
+    /// Distinct from scene::upload_image — this one attaches a
+    /// presentation image to the project page.
+    #[stonehm_macros::api_handler]
+    pub async fn upload_image() -> Json<&'static str> {
+        Json("metadata")
+    }
 }
 
 #[cfg(test)]
@@ -1492,8 +1520,12 @@ mod handler_tests {
         request_body: &'static str,
         tags: &'static str,
     ) -> HandlerDocumentation {
-        // Simulate what the api_handler macro would register
+        // Simulate what the api_handler macro would register. The
+        // module_path field is left empty here because these tests
+        // assert on the struct directly rather than going through the
+        // inventory + lookup-by-fully-qualified-path path.
         HandlerDocumentation {
+            module_path: "",
             function_name,
             summary,
             description,
@@ -1814,15 +1846,15 @@ mod handler_tests {
         router.routes.push(RouteInfo {
             path: "/users".to_string(),
             method: "GET".to_string(),
-            function_name: "list_users".to_string(),
+            function_path: "list_users".to_string(),
             summary: Some("List users".to_string()),
             description: None,
         });
-        
+
         router.routes.push(RouteInfo {
-            path: "/users/:id".to_string(),
+            path: "/users/{id}".to_string(),
             method: "GET".to_string(),
-            function_name: "get_user".to_string(),
+            function_path: "get_user".to_string(),
             summary: Some("Get user".to_string()),
             description: None,
         });
