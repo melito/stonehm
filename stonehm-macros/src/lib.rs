@@ -702,6 +702,52 @@ fn to_snake_case(s: &str) -> String {
     out
 }
 
+/// Concatenate the `///` doc comments on an item into a single
+/// description string. Strips a single leading space (the conventional
+/// `/// foo` style) and joins lines with a single space, mirroring how
+/// rustdoc itself renders short doc blocks. Returns `None` if there
+/// are no doc comments. Used to propagate enum-variant docs into the
+/// generated schema's `description` field.
+fn extract_doc_description(attrs: &[Attribute]) -> Option<String> {
+    let mut lines: Vec<String> = Vec::new();
+    for attr in attrs {
+        if !attr.path().is_ident("doc") { continue; }
+        let Meta::NameValue(meta) = &attr.meta else { continue; };
+        let Expr::Lit(lit) = &meta.value else { continue; };
+        let Lit::Str(s) = &lit.lit else { continue; };
+        let raw = s.value();
+        // Strip exactly one leading space — the typical `/// foo`
+        // convention — but preserve indentation past that.
+        let line = raw.strip_prefix(' ').unwrap_or(&raw).to_string();
+        lines.push(line);
+    }
+    if lines.is_empty() {
+        return None;
+    }
+    // Trim trailing/leading empty lines, then join non-empty into a
+    // single string with single-space separators. This collapses
+    // multi-paragraph docs into one description suitable for an
+    // OpenAPI/JSON-Schema field.
+    let trimmed: Vec<&str> = lines.iter()
+        .map(|s| s.trim_end())
+        .skip_while(|s| s.is_empty())
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .skip_while(|s| s.is_empty())
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect();
+    if trimmed.is_empty() { return None; }
+    let joined = trimmed.iter()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ");
+    if joined.is_empty() { None } else { Some(joined) }
+}
+
 /// Pull `tag = "..."` and `rename_all = "..."` out of a `#[serde(...)]`
 /// attribute list. Returns (tag_field, rename_all). The serde attribute
 /// parser is intentionally narrow — it only recognises forms krad uses.
@@ -964,11 +1010,19 @@ pub fn derive_stone_schema(input: TokenStream) -> TokenStream {
                         // serde gymnastics — skip for now.
                         Fields::Unnamed(_) => {}
                     }
-                    variants_out.push(serde_json::json!({
-                        "type": "object",
-                        "properties": serde_json::Value::Object(properties),
-                        "required": serde_json::Value::Array(required),
-                    }));
+                    // Propagate variant doc comments (`/// ...` above each
+                    // variant) into the schema as a `description`. This
+                    // is what lets downstream code (e.g. an MCP server
+                    // card) source per-tool descriptions from the rustdoc
+                    // — single source of truth, no separate lookup table.
+                    let mut variant_obj = serde_json::Map::new();
+                    variant_obj.insert("type".into(), serde_json::Value::String("object".into()));
+                    if let Some(desc) = extract_doc_description(&variant.attrs) {
+                        variant_obj.insert("description".into(), serde_json::Value::String(desc));
+                    }
+                    variant_obj.insert("properties".into(), serde_json::Value::Object(properties));
+                    variant_obj.insert("required".into(), serde_json::Value::Array(required));
+                    variants_out.push(serde_json::Value::Object(variant_obj));
                 }
                 serde_json::json!({
                     "oneOf": variants_out,

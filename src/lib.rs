@@ -2303,6 +2303,50 @@ mod derive_macro_tests {
         assert!(consts.contains(&"Plain".to_string()));
     }
 
+    // ─── Variant doc comments → description ─────────────────────────
+
+    #[derive(Serialize, Deserialize, StonehmSchema)]
+    #[serde(tag = "type", rename_all = "snake_case")]
+    #[allow(dead_code)]
+    enum DocumentedCommand {
+        /// Add a box primitive to the scene
+        AddBox { width: f64 },
+        /// Set the camera angle to a named view
+        ///
+        /// Multi-line docs are joined with single spaces.
+        SetView { angle: String },
+        // No doc comment — should not get a description in the schema.
+        UndocumentedVariant,
+    }
+
+    #[test]
+    fn variant_doc_comments_become_descriptions() {
+        let raw = DocumentedCommand::schema();
+        let v: Value = serde_json::from_str(&raw).expect("schema is valid JSON");
+        let variants = v["oneOf"].as_array().unwrap();
+
+        let by_const = |name: &str| -> &Value {
+            variants.iter()
+                .find(|var| var["properties"]["type"]["const"] == name)
+                .unwrap_or_else(|| panic!("variant '{name}' missing"))
+        };
+
+        assert_eq!(
+            by_const("add_box")["description"],
+            "Add a box primitive to the scene",
+        );
+        assert_eq!(
+            by_const("set_view")["description"],
+            "Set the camera angle to a named view Multi-line docs are joined with single spaces.",
+        );
+        // Variants without doc comments must not get a `description`
+        // field — absence is meaningful (the consumer can fall back).
+        assert!(
+            by_const("undocumented_variant").get("description").is_none(),
+            "undocumented variant should not have a description field"
+        );
+    }
+
     // ─── Custom-type field becomes $ref ─────────────────────────────
 
     #[derive(Serialize, Deserialize, StonehmSchema)]

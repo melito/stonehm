@@ -1,6 +1,6 @@
 [package]
 name = "stonehm"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 description = "Automatic OpenAPI 3.0 generation for Axum applications"
 license = "MIT"
@@ -24,7 +24,7 @@ serde_json = "1.0"
 # Macros crate. Path dep during development so changes to the proc-macro
 # take effect locally without re-publishing. Bump to a versioned dep
 # before `cargo publish` per SHIPPING.md.
-stonehm-macros = "0.2.1"
+stonehm-macros = { version = "0.2.2", path = "stonehm-macros" }
 
 [dev-dependencies]
 serde = { version = "1.0", features = ["derive"] }
