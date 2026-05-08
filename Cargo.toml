@@ -1,6 +1,6 @@
 [package]
 name = "stonehm"
-version = "0.1.4"
+version = "0.2.0"
 edition = "2021"
 description = "Automatic OpenAPI 3.0 generation for Axum applications"
 license = "MIT"
@@ -13,7 +13,7 @@ categories = ["web-programming", "api-bindings"]
 members = ["examples/hello_world", "stonehm-macros"]
 
 [dependencies]
-axum = { version = "0.7", default-features = false, features = ["json"] }
+axum = { version = "0.8", default-features = false, features = ["json"] }
 tower = "0.5"
 tower-service = "0.3"
 http = "1.0"
@@ -22,4 +22,7 @@ indexmap = "2.0"
 serde_json = "1.0"
 
 # Macros crate
-stonehm-macros = { version = "0.1.1", path = "stonehm-macros" }
+stonehm-macros = { version = "0.2.0", path = "stonehm-macros" }
+
+[dev-dependencies]
+serde = { version = "1.0", features = ["derive"] }

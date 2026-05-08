@@ -1,5 +1,5 @@
 use proc_macro::TokenStream;
-use quote::quote;
+use quote::{quote, ToTokens};
 use syn::{parse_macro_input, ItemFn, Attribute, Lit, Meta, Expr, Type, FnArg, ReturnType, PathArguments, GenericArgument, DeriveInput, Data, Fields};
 
 /// Sanitize a type string to create a valid Rust identifier
@@ -548,32 +548,232 @@ pub fn documented_router(_input: TokenStream) -> TokenStream {
     TokenStream::from(output)
 }
 
+/// Strip `Option<...>` and return the inner type. Returns `None` if `ty` is
+/// not an `Option`.
+fn unwrap_option(ty: &Type) -> Option<&Type> {
+    let Type::Path(type_path) = ty else { return None; };
+    let segment = type_path.path.segments.last()?;
+    if segment.ident != "Option" { return None; }
+    let PathArguments::AngleBracketed(args) = &segment.arguments else { return None; };
+    args.args.iter().find_map(|arg| match arg {
+        GenericArgument::Type(t) => Some(t),
+        _ => None,
+    })
+}
+
+/// Map a Rust type to a JSON schema fragment as a `serde_json::Value`.
+/// Recurses into `Option<T>` (transparent — Option-ness is encoded by the
+/// caller via the `required` array, not the schema) and `Vec<T>`. Unknown
+/// custom types become `$ref` to a registered schema name.
+fn type_to_schema(ty: &Type) -> serde_json::Value {
+    if let Some(inner) = unwrap_option(ty) {
+        return type_to_schema(inner);
+    }
+    // Fixed-size arrays — `[f32; 3]`, `[u8; 32]`, etc. Schema is an array
+    // with bounded length so agents know how many items to send.
+    if let Type::Array(arr) = ty {
+        let inner_schema = type_to_schema(&arr.elem);
+        // Try to extract the literal length. If the length is a
+        // non-literal const expression we silently drop the bound.
+        let mut obj = serde_json::Map::new();
+        obj.insert("type".into(), serde_json::Value::String("array".into()));
+        obj.insert("items".into(), inner_schema);
+        if let Expr::Lit(lit) = &arr.len {
+            if let Lit::Int(int_lit) = &lit.lit {
+                if let Ok(n) = int_lit.base10_parse::<u64>() {
+                    obj.insert("minItems".into(), serde_json::json!(n));
+                    obj.insert("maxItems".into(), serde_json::json!(n));
+                }
+            }
+        }
+        return serde_json::Value::Object(obj);
+    }
+    // References — `&str`, `&'static str`, etc. Strip the reference and
+    // recurse on the inner type.
+    if let Type::Reference(r) = ty {
+        return type_to_schema(&r.elem);
+    }
+    let Type::Path(type_path) = ty else {
+        return serde_json::json!({"type": "string"});
+    };
+    let Some(segment) = type_path.path.segments.last() else {
+        return serde_json::json!({"type": "string"});
+    };
+    let ident = segment.ident.to_string();
+    match ident.as_str() {
+        "String" | "str" => serde_json::json!({"type": "string"}),
+        "i8" | "i16" | "i32" | "i64" | "i128" | "isize"
+        | "u8" | "u16" | "u32" | "u64" | "u128" | "usize" => {
+            serde_json::json!({"type": "integer"})
+        }
+        "f32" | "f64" => serde_json::json!({"type": "number"}),
+        "bool" => serde_json::json!({"type": "boolean"}),
+        // Well-known types that have a canonical OpenAPI representation.
+        // Hardcoded by ident-name only — no path resolution — so a user
+        // type also called `Uuid` would collide. The risk is low because
+        // these names are widely treated as the canonical ones. If
+        // someone hits the collision, they can still derive
+        // `StonehmSchema` on their own type and the registered schema
+        // wins (the inventory walk keeps the user's registration).
+        "Uuid" => serde_json::json!({"type": "string", "format": "uuid"}),
+        "DateTime" => serde_json::json!({"type": "string", "format": "date-time"}),
+        "NaiveDate" => serde_json::json!({"type": "string", "format": "date"}),
+        "NaiveDateTime" => serde_json::json!({"type": "string", "format": "date-time"}),
+        // serde_json::Value — the agent should expect arbitrary JSON.
+        // Empty schema means "any value" in OpenAPI 3.x.
+        "Value" | "JsonValue" => serde_json::json!({}),
+        "Vec" => {
+            if let PathArguments::AngleBracketed(args) = &segment.arguments {
+                if let Some(GenericArgument::Type(inner)) = args.args.iter().find(|a| matches!(a, GenericArgument::Type(_))) {
+                    return serde_json::json!({"type": "array", "items": type_to_schema(inner)});
+                }
+            }
+            serde_json::json!({"type": "array"})
+        }
+        // HashMap<K, V> / BTreeMap<K, V> — opaque object with V-typed
+        // values. K is assumed to be string (JSON object keys always are).
+        "HashMap" | "BTreeMap" => {
+            if let PathArguments::AngleBracketed(args) = &segment.arguments {
+                let value_ty = args.args.iter()
+                    .filter_map(|a| if let GenericArgument::Type(t) = a { Some(t) } else { None })
+                    .nth(1);
+                if let Some(v) = value_ty {
+                    return serde_json::json!({
+                        "type": "object",
+                        "additionalProperties": type_to_schema(v),
+                    });
+                }
+            }
+            serde_json::json!({"type": "object"})
+        }
+        // Unknown — assume it's a user-defined type with its own
+        // StonehmSchema registration. Reference it.
+        _ => serde_json::json!({"$ref": format!("#/components/schemas/{ident}")}),
+    }
+}
+
+/// Returns true if the type is an `Option<...>` — the caller uses this to
+/// decide whether the field belongs in the `required` array.
+fn is_option_type(ty: &Type) -> bool {
+    unwrap_option(ty).is_some()
+}
+
+/// Build the OpenAPI schema object for a struct's named fields.
+/// Returns `{"type":"object","properties":{...},"required":[...]}` (the
+/// `required` key is omitted when there are no required fields).
+fn struct_fields_to_schema(fields: &syn::FieldsNamed) -> serde_json::Value {
+    let mut properties = serde_json::Map::new();
+    let mut required: Vec<serde_json::Value> = Vec::new();
+    for field in &fields.named {
+        let Some(field_name) = &field.ident else { continue; };
+        let name_str = field_name.to_string();
+        properties.insert(name_str.clone(), type_to_schema(&field.ty));
+        if !is_option_type(&field.ty) {
+            required.push(serde_json::Value::String(name_str));
+        }
+    }
+    let mut obj = serde_json::Map::new();
+    obj.insert("type".into(), serde_json::Value::String("object".into()));
+    obj.insert("properties".into(), serde_json::Value::Object(properties));
+    if !required.is_empty() {
+        obj.insert("required".into(), serde_json::Value::Array(required));
+    }
+    serde_json::Value::Object(obj)
+}
+
+/// Convert a Rust ident in PascalCase to snake_case. Used to honour
+/// `#[serde(rename_all = "snake_case")]` on enum variants.
+fn to_snake_case(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 4);
+    for (i, ch) in s.chars().enumerate() {
+        if ch.is_ascii_uppercase() {
+            if i > 0 { out.push('_'); }
+            for lc in ch.to_lowercase() { out.push(lc); }
+        } else {
+            out.push(ch);
+        }
+    }
+    out
+}
+
+/// Pull `tag = "..."` and `rename_all = "..."` out of a `#[serde(...)]`
+/// attribute list. Returns (tag_field, rename_all). The serde attribute
+/// parser is intentionally narrow — it only recognises forms krad uses.
+fn parse_serde_enum_attrs(attrs: &[Attribute]) -> (Option<String>, Option<String>) {
+    let mut tag = None;
+    let mut rename_all = None;
+    for attr in attrs {
+        if !attr.path().is_ident("serde") { continue; }
+        // Walk inside #[serde(...)]. syn 2 exposes the contents via
+        // `parse_nested_meta` but that consumes the meta; for our needs the
+        // raw token-stream lookup below is enough.
+        let tokens = attr.to_token_stream().to_string();
+        // Find tag = "..."
+        if tag.is_none() {
+            if let Some(idx) = tokens.find("tag = ") {
+                let rest = &tokens[idx + "tag = ".len()..];
+                if let Some(start) = rest.find('"') {
+                    let after = &rest[start + 1..];
+                    if let Some(end) = after.find('"') {
+                        tag = Some(after[..end].to_string());
+                    }
+                }
+            }
+        }
+        if rename_all.is_none() {
+            if let Some(idx) = tokens.find("rename_all = ") {
+                let rest = &tokens[idx + "rename_all = ".len()..];
+                if let Some(start) = rest.find('"') {
+                    let after = &rest[start + 1..];
+                    if let Some(end) = after.find('"') {
+                        rename_all = Some(after[..end].to_string());
+                    }
+                }
+            }
+        }
+    }
+    (tag, rename_all)
+}
+
 /// Derive macro for automatic JSON schema generation.
-/// 
-/// This derive macro automatically implements the `StonehmSchema` trait for your types,
-/// enabling automatic JSON schema generation for OpenAPI specifications. Use this
-/// on all request and response types that you want to appear in your OpenAPI spec.
-/// 
+///
+/// This derive macro automatically implements the `StonehmSchema` trait
+/// for your types, enabling automatic JSON schema generation for OpenAPI
+/// specifications. Use this on all request and response types that you
+/// want to appear in your OpenAPI spec.
+///
 /// # Type Support
-/// 
+///
 /// Supported Rust types and their JSON schema mappings:
 /// - `String`, `&str` → `"string"`
 /// - `i32`, `i64`, `u32`, `u64`, etc. → `"integer"`
 /// - `f32`, `f64` → `"number"`
 /// - `bool` → `"boolean"`
-/// - `Option<T>` → makes field optional
-/// - `Vec<T>` → `"array"` with item schema
-/// - Nested structs → object references
-/// - Enums → `"string"` (basic support)
-/// 
+/// - `Option<T>` → makes field optional, recurses into `T`
+/// - `Vec<T>` → `"array"` with item schema for `T`
+/// - `[T; N]` → `"array"` with `minItems`/`maxItems` of `N`
+/// - `HashMap<String, V>` / `BTreeMap<String, V>` → object with
+///   `additionalProperties` typed as `V`
+/// - `Uuid` → `"string"` with `format: uuid`
+/// - `DateTime<Tz>`, `NaiveDateTime` → `"string"` with `format: date-time`
+/// - `serde_json::Value` → empty schema (any JSON)
+/// - Nested structs → `$ref` to a registered schema
+/// - Discriminator-tagged enums (`#[serde(tag = "...")]`) → `oneOf`
+///   with one variant per enum variant + a `discriminator` block
+///
 /// # Examples
-/// 
+///
+/// Doctests below are marked `ignore` because proc-macro derive macros
+/// can't be invoked from doctests in the same crate that defines them.
+/// The examples render correctly as docs and reflect real downstream
+/// usage.
+///
 /// ## Basic Struct
-/// 
-/// ```rust
+///
+/// ```rust,ignore
 /// use serde::Serialize;
-/// use stonehm_macros::StoneSchema;
-/// 
+/// use stonehm::StonehmSchema;
+///
 /// #[derive(Serialize, StonehmSchema)]
 /// struct User {
 ///     id: u32,
@@ -582,24 +782,24 @@ pub fn documented_router(_input: TokenStream) -> TokenStream {
 ///     is_active: bool,
 ///     age: Option<u32>,
 /// }
-/// 
+///
 /// // Generates JSON schema automatically
 /// let schema = User::schema();
 /// ```
-/// 
+///
 /// ## Request/Response Types
-/// 
-/// ```rust
-/// # use serde::{Serialize, Deserialize};
-/// # use stonehm_macros::StonehmSchema;
-/// 
+///
+/// ```rust,ignore
+/// use serde::{Serialize, Deserialize};
+/// use stonehm::StonehmSchema;
+///
 /// #[derive(Deserialize, StonehmSchema)]
 /// struct CreateUserRequest {
 ///     name: String,
 ///     email: String,
 ///     preferences: UserPreferences,
 /// }
-/// 
+///
 /// #[derive(Serialize, StonehmSchema)]
 /// struct UserResponse {
 ///     id: u32,
@@ -607,36 +807,36 @@ pub fn documented_router(_input: TokenStream) -> TokenStream {
 ///     email: String,
 ///     created_at: String,
 /// }
-/// 
+///
 /// #[derive(Serialize, Deserialize, StonehmSchema)]
 /// struct UserPreferences {
 ///     newsletter: bool,
 ///     theme: String,
 /// }
 /// ```
-/// 
-/// ## Error Types
-/// 
-/// ```rust
-/// # use serde::Serialize;
-/// # use stonehm_macros::StonehmSchema;
-/// 
-/// #[derive(Serialize, StonehmSchema)]
-/// enum ApiError {
-///     UserNotFound { id: u32 },
-///     ValidationError { field: String, message: String },
-///     DatabaseError,
-///     NetworkTimeout,
+///
+/// ## Tagged Enums (oneOf)
+///
+/// ```rust,ignore
+/// use serde::{Serialize, Deserialize};
+/// use stonehm::StonehmSchema;
+///
+/// #[derive(Serialize, Deserialize, StonehmSchema)]
+/// #[serde(tag = "type", rename_all = "snake_case")]
+/// enum Command {
+///     AddBox { width: f64, height: f64 },
+///     Delete { id: u64 },
+///     Reset,
 /// }
+/// // Generates: { "oneOf": [...], "discriminator": { "propertyName": "type" } }
 /// ```
-/// 
+///
 /// # Generated Schema Format
-/// 
+///
 /// The macro generates JSON schemas following the OpenAPI 3.0 specification:
-/// 
+///
 /// ```json
 /// {
-///   "title": "User",
 ///   "type": "object",
 ///   "properties": {
 ///     "id": { "type": "integer" },
@@ -648,34 +848,38 @@ pub fn documented_router(_input: TokenStream) -> TokenStream {
 ///   "required": ["id", "name", "email", "is_active"]
 /// }
 /// ```
-/// 
+///
 /// # Usage with API Handlers
-/// 
+///
 /// Use `StonehmSchema` types in your API handlers for automatic documentation:
-/// 
-/// ```rust,no_run
-/// # use axum::Json;
-/// # use stonehm::api_handler;
-/// # use stonehm_macros::StonehmSchema;
-/// # use serde::{Serialize, Deserialize};
-/// # #[derive(Deserialize, StoneSchema)] struct CreateUserRequest { name: String }
-/// # #[derive(Serialize, StoneSchema)] struct User { id: u32, name: String }
-/// # #[derive(Serialize, StoneSchema)] enum ApiError { NotFound }
+///
+/// ```rust,ignore
+/// use axum::Json;
+/// use stonehm::{api_handler, StonehmSchema};
+/// use serde::{Serialize, Deserialize};
+///
+/// #[derive(Deserialize, StonehmSchema)]
+/// struct CreateUserRequest { name: String }
+///
+/// #[derive(Serialize, StonehmSchema)]
+/// struct User { id: u32, name: String }
+///
+/// #[derive(Serialize, StonehmSchema)]
+/// enum ApiError { NotFound }
 /// # use axum::response::IntoResponse;
 /// # impl IntoResponse for ApiError { fn into_response(self) -> axum::response::Response { todo!() } }
-/// 
+///
 /// /// Create a new user
 /// #[api_handler]
 /// async fn create_user(
 ///     Json(request): Json<CreateUserRequest>  // Schema automatically included
 /// ) -> Result<Json<User>, ApiError> {         // Both schemas automatically included
-///     // Implementation
-/// #   Ok(Json(User { id: 1, name: request.name }))
+///     Ok(Json(User { id: 1, name: request.name }))
 /// }
 /// ```
-/// 
+///
 /// # Requirements
-/// 
+///
 /// - Your type must implement `Serialize` (for response types) or `Deserialize` (for request types)
 /// - The type must be used in a function signature annotated with `#[api_handler]`
 /// - For error types used in `Result<T, E>`, implement `axum::response::IntoResponse`
@@ -684,74 +888,96 @@ pub fn derive_stone_schema(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     let name = &input.ident;
     let name_str = name.to_string();
-    
-    // Generate a simple JSON schema string
-    let schema_json = match &input.data {
-        Data::Struct(data_struct) => {
-            match &data_struct.fields {
-                Fields::Named(fields) => {
-                    let mut properties = Vec::new();
-                    let mut required = Vec::new();
-                    
-                    for field in fields.named.iter() {
-                        if let Some(field_name) = &field.ident {
-                            let field_name_str = field_name.to_string();
-                            
-                            // Simple type mapping - extend as needed
-                            let type_str = match &field.ty {
-                                Type::Path(type_path) => {
-                                    if let Some(segment) = type_path.path.segments.last() {
-                                        match segment.ident.to_string().as_str() {
-                                            "String" | "str" => "string",
-                                            "i32" | "i64" | "u32" | "u64" | "isize" | "usize" => "integer",
-                                            "f32" | "f64" => "number",
-                                            "bool" => "boolean",
-                                            "Option" => {
-                                                // Skip required for Option types
-                                                "string" // simplified - extract inner type later
-                                            },
-                                            _ => "object", // custom types
-                                        }
-                                    } else {
-                                        "string"
-                                    }
-                                },
-                                _ => "string", // default for complex types
-                            };
-                            
-                            properties.push(format!("\"{field_name_str}\":{{\"type\":\"{type_str}\"}}"));
-                            
-                            // Only add to required if not an Option type
-                            if let Type::Path(type_path) = &field.ty {
-                                if let Some(segment) = type_path.path.segments.last() {
-                                    if segment.ident != "Option" {
-                                        required.push(format!("\"{field_name_str}\""));
-                                    }
+
+    let schema_value: serde_json::Value = match &input.data {
+        Data::Struct(data_struct) => match &data_struct.fields {
+            Fields::Named(fields) => struct_fields_to_schema(fields),
+            _ => serde_json::json!({"type": "object"}),
+        },
+        Data::Enum(data_enum) => {
+            // Discriminator-tagged: `#[serde(tag = "type")]`. Every variant
+            // becomes a `oneOf` member with a const `type` field plus its
+            // own properties; OpenAPI's `discriminator.propertyName` gets
+            // set to the tag.
+            //
+            // Untagged enums (and the "content" variant) aren't handled
+            // here — they fall through to a generic object schema. That's
+            // a future extension when we hit a real-world need.
+            let (tag, rename_all) = parse_serde_enum_attrs(&input.attrs);
+            if let Some(tag) = tag {
+                let mut variants_out: Vec<serde_json::Value> = Vec::new();
+                for variant in &data_enum.variants {
+                    let variant_ident = variant.ident.to_string();
+                    let variant_name = match rename_all.as_deref() {
+                        Some("snake_case") => to_snake_case(&variant_ident),
+                        // Other rename_all forms can be added here. For
+                        // now everything else passes through verbatim.
+                        _ => variant_ident.clone(),
+                    };
+                    // Per-variant rename override: #[serde(rename = "foo")].
+                    // Same narrow parser as the enum-level attrs.
+                    let mut variant_name_override: Option<String> = None;
+                    for attr in &variant.attrs {
+                        if !attr.path().is_ident("serde") { continue; }
+                        let tokens = attr.to_token_stream().to_string();
+                        if let Some(idx) = tokens.find("rename = ") {
+                            let rest = &tokens[idx + "rename = ".len()..];
+                            if let Some(start) = rest.find('"') {
+                                let after = &rest[start + 1..];
+                                if let Some(end) = after.find('"') {
+                                    variant_name_override = Some(after[..end].to_string());
+                                    break;
                                 }
-                            } else {
-                                required.push(format!("\"{field_name_str}\""));
                             }
                         }
                     }
-                    
-                    let properties_str = properties.join(",");
-                    let required_str = if required.is_empty() {
-                        String::new()
-                    } else {
-                        format!(",\"required\":[{}]", required.join(","))
-                    };
-                    
-                    format!("{{\"type\":\"object\",\"properties\":{{{properties_str}}}{required_str}}}")
-                },
-                _ => {
-                    "{\"type\":\"object\"}".to_string()
+                    let final_variant_name = variant_name_override.unwrap_or(variant_name);
+
+                    let mut properties = serde_json::Map::new();
+                    let mut required: Vec<serde_json::Value> = vec![
+                        serde_json::Value::String(tag.clone()),
+                    ];
+                    properties.insert(
+                        tag.clone(),
+                        serde_json::json!({"type": "string", "const": final_variant_name}),
+                    );
+                    match &variant.fields {
+                        Fields::Named(fields) => {
+                            for field in &fields.named {
+                                let Some(fname) = &field.ident else { continue; };
+                                let fname_str = fname.to_string();
+                                properties.insert(fname_str.clone(), type_to_schema(&field.ty));
+                                if !is_option_type(&field.ty) {
+                                    required.push(serde_json::Value::String(fname_str));
+                                }
+                            }
+                        }
+                        Fields::Unit => {}
+                        // Tuple-style variants in tagged enums aren't
+                        // representable in standard JSON without extra
+                        // serde gymnastics — skip for now.
+                        Fields::Unnamed(_) => {}
+                    }
+                    variants_out.push(serde_json::json!({
+                        "type": "object",
+                        "properties": serde_json::Value::Object(properties),
+                        "required": serde_json::Value::Array(required),
+                    }));
                 }
+                serde_json::json!({
+                    "oneOf": variants_out,
+                    "discriminator": {"propertyName": tag},
+                })
+            } else {
+                // Untagged or no tag attribute → emit a permissive object.
+                serde_json::json!({"type": "object"})
             }
-        },
-        _ => {
-            "{\"type\":\"string\"}".to_string()
         }
+        _ => serde_json::json!({"type": "string"}),
     };
+
+    let schema_json = serde_json::to_string(&schema_value)
+        .unwrap_or_else(|_| "{\"type\":\"object\"}".to_string());
     
     let expanded = quote! {
         impl stonehm::StonehmSchema for #name {
@@ -779,24 +1005,28 @@ pub fn derive_stone_schema(input: TokenStream) -> TokenStream {
 /// `/// {code}: {description}` format to specify status codes for variants.
 /// 
 /// # Basic Usage
-/// 
-/// ```rust
-/// use stonehm_macros::api_error;
-/// 
+///
+/// Doctests are marked `ignore` because proc-macro attribute macros can't
+/// be invoked from doctests in the same crate that defines them. The
+/// examples render correctly as docs.
+///
+/// ```rust,ignore
+/// use stonehm::api_error;
+///
 /// #[api_error]
 /// enum ApiError {
 ///     /// 404: User not found
 ///     UserNotFound { id: u32 },
-///     
+///
 ///     /// 400: Invalid input provided
 ///     InvalidInput { message: String },
-///     
+///
 ///     /// 401: Authentication required
 ///     Unauthorized,
-///     
+///
 ///     /// 403: Access forbidden
 ///     Forbidden,
-///     
+///
 ///     // Variants without doc comments default to 500 Internal Server Error
 ///     DatabaseError,
 ///     NetworkTimeout,
@@ -832,26 +1062,28 @@ pub fn derive_stone_schema(input: TokenStream) -> TokenStream {
 /// # Examples
 /// 
 /// ## Basic Error Enum
-/// 
-/// ```rust
-/// # use stonehm_macros::api_error;
-/// # use serde::Serialize;
+///
+/// ```rust,ignore
+/// use stonehm::api_error;
+/// use serde::Serialize;
+///
 /// #[api_error]
 /// #[derive(Serialize)]
 /// enum UserError {
 ///     /// 404: User not found
 ///     NotFound { id: u32 },
-///     
+///
 ///     /// 400: Invalid user data
 ///     InvalidData { field: String, reason: String },
 /// }
 /// ```
-/// 
+///
 /// ## With Custom Serialization
-/// 
-/// ```rust
-/// # use stonehm_macros::api_error;
-/// # use serde::Serialize;
+///
+/// ```rust,ignore
+/// use stonehm::api_error;
+/// use serde::Serialize;
+///
 /// #[api_error]
 /// #[derive(Serialize)]
 /// #[serde(tag = "error", content = "details")]
@@ -859,7 +1091,7 @@ pub fn derive_stone_schema(input: TokenStream) -> TokenStream {
 ///     /// 401: Missing or invalid authentication token
 ///     #[serde(rename = "auth_required")]
 ///     AuthRequired,
-///     
+///
 ///     /// 403: User lacks required permissions
 ///     #[serde(rename = "access_denied")]
 ///     AccessDenied { required_role: String },
@@ -868,23 +1100,26 @@ pub fn derive_stone_schema(input: TokenStream) -> TokenStream {
 /// 
 /// ## Usage in Handlers
 /// 
-/// ```rust,no_run
-/// # use axum::Json;
-/// # use stonehm_macros::{api_error, api_handler, StoneSchema};
-/// # use serde::{Serialize, Deserialize};
-/// # #[derive(Deserialize, StoneSchema)]
-/// # struct UpdateUserRequest { name: String }
-/// # #[derive(Serialize, StoneSchema)]
-/// # struct User { id: u32, name: String }
-/// # #[api_error]
-/// # #[derive(Serialize)]
-/// # enum UserError {
-/// #     /// 404: User not found
-/// #     NotFound { id: u32 },
-/// #     /// 400: Invalid data
-/// #     InvalidData { message: String },
-/// # }
-/// 
+/// ```rust,ignore
+/// use axum::Json;
+/// use stonehm::{api_error, api_handler, StonehmSchema};
+/// use serde::{Serialize, Deserialize};
+///
+/// #[derive(Deserialize, StonehmSchema)]
+/// struct UpdateUserRequest { name: String }
+///
+/// #[derive(Serialize, StonehmSchema)]
+/// struct User { id: u32, name: String }
+///
+/// #[api_error]
+/// #[derive(Serialize)]
+/// enum UserError {
+///     /// 404: User not found
+///     NotFound { id: u32 },
+///     /// 400: Invalid data
+///     InvalidData { message: String },
+/// }
+///
 /// /// Update user information
 /// #[api_handler]
 /// async fn update_user(
@@ -894,13 +1129,13 @@ pub fn derive_stone_schema(input: TokenStream) -> TokenStream {
 ///     if id == 0 {
 ///         return Err(UserError::NotFound { id });
 ///     }
-///     
+///
 ///     if data.name.is_empty() {
-///         return Err(UserError::InvalidData { 
-///             message: "Name cannot be empty".to_string() 
+///         return Err(UserError::InvalidData {
+///             message: "Name cannot be empty".to_string()
 ///         });
 ///     }
-///     
+///
 ///     Ok(Json(User { id, name: data.name }))
 /// }
 /// ```
