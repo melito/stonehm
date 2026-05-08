@@ -24,7 +24,7 @@ serde_json = "1.0"
 # Macros crate. Path dep during development so changes to the proc-macro
 # take effect locally without re-publishing. Bump to a versioned dep
 # before `cargo publish` per SHIPPING.md.
-stonehm-macros = { version = "0.2.1", path = "stonehm-macros" }
+stonehm-macros = "0.2.1"
 
 [dev-dependencies]
 serde = { version = "1.0", features = ["derive"] }
