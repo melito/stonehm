@@ -22,7 +22,7 @@ indexmap = "2.0"
 serde_json = "1.0"
 
 # Macros crate
-stonehm-macros = { version = "0.2.0", path = "stonehm-macros" }
+stonehm-macros = "0.2.0"
 
 [dev-dependencies]
 serde = { version = "1.0", features = ["derive"] }
